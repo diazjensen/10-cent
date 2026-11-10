@@ -25,7 +25,7 @@ export default async function RequirementPage({ searchParams }: PageProps<"/requ
   const user = await getUser();
   const jar = await cookies();
   const cities = await getCities();
-  const defaultCity = cities.find((c) => c.slug === jar.get("tc_city")?.value)?.slug ?? cities[0].slug;
+  const defaultCity = cities.find((c) => c.slug === jar.get("tc_city")?.value)?.slug ?? cities[0]?.slug ?? "";
   const cityData = await Promise.all(cities.map(async (c) => ({ slug: c.slug, name: c.name, localities: (await getLocalities(c.id)).map((l) => ({ id: l.id, name: l.name })) })));
   const locName = Object.fromEntries(cityData.flatMap((c) => c.localities.map((l) => [l.id, l.name])));
   const reqs = user ? (await db.prepare(`SELECT r.*, c.slug city_slug, c.name city_name FROM requirements r JOIN cities c ON c.id = r.city_id WHERE r.user_id = ? ORDER BY r.active DESC, r.created_at DESC`).all(user.id) as Req[]) : [];

@@ -44,7 +44,7 @@ export default async function Home() {
   if (banner) await db.prepare("UPDATE banners SET impressions = impressions + 1 WHERE id = ?").run(banner.id);
 
   const articles = await db.prepare("SELECT slug, title, category, excerpt, cover_url, published_at FROM articles WHERE status = 'published' ORDER BY published_at DESC LIMIT 3").all() as Array<{ slug: string; title: string; category: string; excerpt: string; cover_url: string; published_at: string }>;
-  const stats = await db.prepare("SELECT COUNT(*) live, SUM(verified) verified, COUNT(DISTINCT city_id) cities FROM listings WHERE status = 'live'").get() as { live: number; verified: number; cities: number };
+  const stats = await db.prepare("SELECT COUNT(*) live, COALESCE(SUM(verified), 0) verified, COUNT(DISTINCT city_id) cities FROM listings WHERE status = 'live'").get() as { live: number; verified: number; cities: number };
   const ownerCount = (await db.prepare("SELECT COUNT(*) n FROM listings WHERE status = 'live' AND posted_by_type = 'owner'").get() as { n: number }).n;
 
   return (

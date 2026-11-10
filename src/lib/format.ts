@@ -18,8 +18,8 @@ function trim(x: number) {
 }
 
 /** 12,34,567 (Indian digit grouping) */
-export function formatINR(n: number, fractionDigits = 0): string {
-  return n.toLocaleString("en-IN", { maximumFractionDigits: fractionDigits, minimumFractionDigits: fractionDigits });
+export function formatINR(n: number | null | undefined, fractionDigits = 0): string {
+  return (n ?? 0).toLocaleString("en-IN", { maximumFractionDigits: fractionDigits, minimumFractionDigits: fractionDigits });
 }
 
 export function formatPaise(p: number): string {
