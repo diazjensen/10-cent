@@ -4,7 +4,7 @@ import { staticPagePath } from "@/components/content/static-page";
 
 const SITE = (process.env.SITE_URL || "http://localhost:3000").replace(/\/$/, "");
 
-export const revalidate = 3600;
+export const dynamic = "force-dynamic";
 
 const TOOLS = ["emi", "eligibility", "area-converter", "price-trends", "valuation", "stamp-duty", "rental-yield", "rent-receipt"];
 
