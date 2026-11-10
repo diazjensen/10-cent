@@ -27,7 +27,7 @@ export type LeadState = {
 async function guard(listingId: number): Promise<{ error: LeadState } | { listing: LeadListing; user: NonNullable<Awaited<ReturnType<typeof getUser>>> }> {
   const user = await getUser();
   if (!user) return { error: { needLogin: true, error: "Log in to contact the poster." } };
-  const listing = getLeadListing(listingId);
+  const listing = await getLeadListing(listingId);
   if (!listing || listing.status !== "live") return { error: { error: "This listing is no longer accepting enquiries." } };
   if (listing.user_id === user.id) return { error: { error: "This is your own listing. You can't contact yourself." } };
   return { listing, user };
@@ -36,11 +36,11 @@ async function guard(listingId: number): Promise<{ error: LeadState } | { listin
 /** Phone reveal with per-user and per-IP daily limits (PRD D5, §4.4). Re-revealing the same listing within a day is free. */
 async function revealFor(listing: LeadListing, user: { id: number }): Promise<{ phone?: string; error?: string }> {
   if (!listing.poster_phone) return { error: "The poster hasn't shared a phone number. Send a message instead." };
-  if (!recentLead(user.id, listing.id, "phone_reveal")) {
+  if (!await recentLead(user.id, listing.id, "phone_reveal")) {
     const ip = await clientIp();
-    const perUser = rateLimit(`phone:u:${user.id}`, PHONE_REVEAL_DAILY_LIMIT, 86400);
+    const perUser = await rateLimit(`phone:u:${user.id}`, PHONE_REVEAL_DAILY_LIMIT, 86400);
     if (!perUser.ok) return { error: `You've viewed ${PHONE_REVEAL_DAILY_LIMIT} numbers today. Send a message instead, or try again tomorrow.` };
-    const perIp = rateLimit(`phone:ip:${ip}`, PHONE_REVEAL_IP_DAILY, 86400);
+    const perIp = await rateLimit(`phone:ip:${ip}`, PHONE_REVEAL_IP_DAILY, 86400);
     if (!perIp.ok) return { error: "Too many number requests from this network today. Please try again tomorrow." };
   }
   return { phone: formatPhone(listing.poster_phone) };
@@ -52,7 +52,7 @@ export async function revealPhone(listingId: number, consent: boolean): Promise<
   if (!consent) return { error: "Please agree to share your contact details with the poster." };
   const r = await revealFor(g.listing, g.user);
   if (r.error) return { error: r.error };
-  const lead = createLead({ listing: g.listing, seeker: g.user, channel: "phone_reveal" });
+  const lead = await createLead({ listing: g.listing, seeker: g.user, channel: "phone_reveal" });
   revalidatePath("/account/contacted");
   return { ok: true, phone: r.phone, duplicate: lead.duplicate };
 }
@@ -101,8 +101,8 @@ async function submitLeadInner(_prev: LeadState, form: FormData): Promise<LeadSt
   const { listing, user } = g;
 
   const ip = await clientIp();
-  const rl = rateLimit(`lead:u:${user.id}`, 40, 86400);
-  const rlIp = rateLimit(`lead:ip:${ip}`, 120, 86400);
+  const rl = await rateLimit(`lead:u:${user.id}`, 40, 86400);
+  const rlIp = await rateLimit(`lead:ip:${ip}`, 120, 86400);
   if (!rl.ok || !rlIp.ok) return { error: "You've sent a lot of enquiries today. Please try again tomorrow." };
 
   if (d.channel === "visit") {
@@ -114,14 +114,14 @@ async function submitLeadInner(_prev: LeadState, form: FormData): Promise<LeadSt
     if (Number.isNaN(at.getTime()) || at.getTime() <= Date.now() || at.getTime() > today.getTime() + 31 * 86400000)
       return { fieldErrors: { date: "Choose a time in the next 30 days" }, error: "Choose a time in the next 30 days." };
     const when = at.toLocaleString("en-IN", { timeZone: "Asia/Kolkata", weekday: "short", day: "numeric", month: "short", hour: "numeric", minute: "2-digit" });
-    const lead = createLead({ listing, seeker: user, channel: "visit", name: d.name, phone: d.phone, email: d.email, message: d.message, detail: `Visit on ${when}` });
-    const existingVisit = db.prepare("SELECT id FROM visits WHERE lead_id = ?").get(lead.id) as { id: number } | undefined;
+    const lead = await createLead({ listing, seeker: user, channel: "visit", name: d.name, phone: d.phone, email: d.email, message: d.message, detail: `Visit on ${when}` });
+    const existingVisit = await db.prepare("SELECT id FROM visits WHERE lead_id = ?").get(lead.id) as { id: number } | undefined;
     if (existingVisit) {
-      db.prepare("UPDATE visits SET scheduled_at = ?, status = 'requested' WHERE id = ?").run(at.toISOString(), existingVisit.id);
+      await db.prepare("UPDATE visits SET scheduled_at = ?, status = 'requested' WHERE id = ?").run(at.toISOString(), existingVisit.id);
     } else {
-      db.prepare("INSERT INTO visits (lead_id, listing_id, seeker_id, scheduled_at) VALUES (?,?,?,?)").run(lead.id, listing.id, user.id, at.toISOString());
+      await db.prepare("INSERT INTO visits (lead_id, listing_id, seeker_id, scheduled_at) VALUES (?,?,?,?)").run(lead.id, listing.id, user.id, at.toISOString());
     }
-    notify(user.id, { kind: "visit", title: `Visit requested for ${when}`, body: listing.title, link: `/property/${listing.id}` });
+    await notify(user.id, { kind: "visit", title: `Visit requested for ${when}`, body: listing.title, link: `/property/${listing.id}` });
     revalidatePath("/account/contacted");
     return {
       ok: true,
@@ -134,17 +134,17 @@ async function submitLeadInner(_prev: LeadState, form: FormData): Promise<LeadSt
 
   if (d.channel === "callback") {
     const label = { asap: "as soon as possible", morning: "in the morning (9am–12pm)", afternoon: "in the afternoon (12–4pm)", evening: "in the evening (4–8pm)" }[d.when ?? "asap"];
-    const lead = createLead({ listing, seeker: user, channel: "callback", name: d.name, phone: d.phone, email: d.email, message: d.message, detail: `Call back ${label}` });
+    const lead = await createLead({ listing, seeker: user, channel: "callback", name: d.name, phone: d.phone, email: d.email, message: d.message, detail: `Call back ${label}` });
     revalidatePath("/account/contacted");
     return { ok: true, duplicate: lead.duplicate, message: lead.duplicate ? "You already asked for a callback today. The poster has your number." : `Callback requested. Expect a call ${label}.` };
   }
 
   // contact
   if (!d.message || d.message.length < 5) return { fieldErrors: { message: "Write a short message" }, error: "Write a short message to the poster." };
-  const lead = createLead({ listing, seeker: user, channel: "contact", name: d.name, phone: d.phone, email: d.email, message: d.message });
+  const lead = await createLead({ listing, seeker: user, channel: "contact", name: d.name, phone: d.phone, email: d.email, message: d.message });
   // Contacting also reveals the number (D5), within the same daily limits.
   const r = await revealFor(listing, user);
-  if (r.phone) createLead({ listing, seeker: user, channel: "phone_reveal" });
+  if (r.phone) await createLead({ listing, seeker: user, channel: "phone_reveal" });
   revalidatePath("/account/contacted");
   return {
     ok: true,
@@ -179,16 +179,16 @@ async function reportListingInner(_prev: ReportState, form: FormData): Promise<R
   if (d.reason === "other" && (!d.details || d.details.length < 10)) return { fieldErrors: { details: "Tell us what's wrong (at least 10 characters)" } };
   const user = await getUser();
   const ip = await clientIp();
-  const rl = rateLimit(`report:${user ? `u:${user.id}` : `ip:${ip}`}`, user ? 10 : 5, 3600);
+  const rl = await rateLimit(`report:${user ? `u:${user.id}` : `ip:${ip}`}`, user ? 10 : 5, 3600);
   if (!rl.ok) return { error: "You've sent several reports recently. Please try again in an hour." };
-  const l = db.prepare("SELECT id, user_id FROM listings WHERE id = ?").get(d.listingId) as { id: number; user_id: number } | undefined;
+  const l = await db.prepare("SELECT id, user_id FROM listings WHERE id = ?").get(d.listingId) as { id: number; user_id: number } | undefined;
   if (!l) return { error: "Listing not found." };
   if (user) {
-    const dup = db.prepare("SELECT id FROM reports WHERE listing_id = ? AND reporter_id = ? AND status = 'open'").get(l.id, user.id);
+    const dup = await db.prepare("SELECT id FROM reports WHERE listing_id = ? AND reporter_id = ? AND status = 'open'").get(l.id, user.id);
     if (dup) return { ok: true };
   }
-  db.prepare("INSERT INTO reports (listing_id, reported_user_id, reporter_id, reason, details) VALUES (?,?,?,?,?)").run(
-    l.id, l.user_id, user?.id ?? null, d.reason, d.details || null
-  );
+  await db.prepare("INSERT INTO reports (listing_id, reported_user_id, reporter_id, reason, details) VALUES (?,?,?,?,?)").run(
+        l.id, l.user_id, user?.id ?? null, d.reason, d.details || null
+      );
   return { ok: true };
 }

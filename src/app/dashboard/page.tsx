@@ -18,27 +18,27 @@ export default async function DashboardHome({ searchParams }: PageProps<"/dashbo
   const since = addDays(-30);
   const day30 = since.slice(0, 10);
 
-  const live = (db.prepare("SELECT COUNT(*) n FROM listings WHERE user_id = ? AND status = 'live'").get(uid) as { n: number }).n;
-  const pending = (db.prepare("SELECT COUNT(*) n FROM listings WHERE user_id = ? AND status = 'pending'").get(uid) as { n: number }).n;
-  const st = db.prepare(
-    "SELECT COALESCE(SUM(s.views),0) views, COALESCE(SUM(s.impressions),0) imp, COALESCE(SUM(s.contacts),0) contacts FROM listing_stats s JOIN listings l ON l.id = s.listing_id WHERE l.user_id = ? AND s.day >= ?"
-  ).get(uid, day30) as { views: number; imp: number; contacts: number };
-  const leads30 = db.prepare("SELECT COUNT(*) total, SUM(CASE WHEN status <> 'new' THEN 1 ELSE 0 END) handled FROM leads WHERE poster_id = ? AND created_at >= ?").get(uid, since) as { total: number; handled: number | null };
+  const live = (await db.prepare("SELECT COUNT(*) n FROM listings WHERE user_id = ? AND status = 'live'").get(uid) as { n: number }).n;
+  const pending = (await db.prepare("SELECT COUNT(*) n FROM listings WHERE user_id = ? AND status = 'pending'").get(uid) as { n: number }).n;
+  const st = await db.prepare(
+      "SELECT COALESCE(SUM(s.views),0) views, COALESCE(SUM(s.impressions),0) imp, COALESCE(SUM(s.contacts),0) contacts FROM listing_stats s JOIN listings l ON l.id = s.listing_id WHERE l.user_id = ? AND s.day >= ?"
+    ).get(uid, day30) as { views: number; imp: number; contacts: number };
+  const leads30 = await db.prepare("SELECT COUNT(*) total, SUM(CASE WHEN status <> 'new' THEN 1 ELSE 0 END) handled FROM leads WHERE poster_id = ? AND created_at >= ?").get(uid, since) as { total: number; handled: number | null };
   const rate = leads30.total ? Math.round(((leads30.handled ?? 0) / leads30.total) * 100) : null;
-  const q = listingQuota(uid);
+  const q = await listingQuota(uid);
 
-  const latest = db.prepare(
-    `SELECT ld.id, ld.name, ld.phone, ld.message, ld.channel, ld.status, ld.created_at, COALESCE(l.title, p.name) what
+  const latest = await db.prepare(
+      `SELECT ld.id, ld.name, ld.phone, ld.message, ld.channel, ld.status, ld.created_at, COALESCE(l.title, p.name) what
      FROM leads ld LEFT JOIN listings l ON l.id = ld.listing_id LEFT JOIN projects p ON p.id = ld.project_id
      WHERE ld.poster_id = ? ORDER BY ld.created_at DESC LIMIT 6`
-  ).all(uid) as Array<{ id: number; name: string | null; phone: string | null; message: string | null; channel: string; status: string; created_at: string; what: string | null }>;
+    ).all(uid) as Array<{ id: number; name: string | null; phone: string | null; message: string | null; channel: string; status: string; created_at: string; what: string | null }>;
 
-  const attention = db.prepare(
-    `SELECT id, title, status, expires_at, reject_reason FROM listings WHERE user_id = ? AND (
+  const attention = await db.prepare(
+      `SELECT id, title, status, expires_at, reject_reason FROM listings WHERE user_id = ? AND (
        status IN ('expired','rejected') OR (status = 'live' AND expires_at <= ?)) ORDER BY expires_at LIMIT 6`
-  ).all(uid, addDays(7)) as Array<{ id: number; title: string; status: string; expires_at: string | null; reject_reason: string | null }>;
-  const noPhotos = (db.prepare("SELECT COUNT(*) n FROM listings l WHERE user_id = ? AND status IN ('live','pending') AND NOT EXISTS (SELECT 1 FROM listing_media m WHERE m.listing_id = l.id AND m.kind = 'photo')").get(uid) as { n: number }).n;
-  const unverified = (db.prepare("SELECT COUNT(*) n FROM listings WHERE user_id = ? AND status = 'live' AND verified = 0 AND verification_requested_at IS NULL").get(uid) as { n: number }).n;
+    ).all(uid, addDays(7)) as Array<{ id: number; title: string; status: string; expires_at: string | null; reject_reason: string | null }>;
+  const noPhotos = (await db.prepare("SELECT COUNT(*) n FROM listings l WHERE user_id = ? AND status IN ('live','pending') AND NOT EXISTS (SELECT 1 FROM listing_media m WHERE m.listing_id = l.id AND m.kind = 'photo')").get(uid) as { n: number }).n;
+  const unverified = (await db.prepare("SELECT COUNT(*) n FROM listings WHERE user_id = ? AND status = 'live' AND verified = 0 AND verification_requested_at IS NULL").get(uid) as { n: number }).n;
 
   const hour = new Date(nowMs() + 5.5 * 3600000).getUTCHours();
   const greet = hour < 12 ? "Good morning" : hour < 17 ? "Good afternoon" : "Good evening";

@@ -17,7 +17,7 @@ export const metadata: Metadata = {
 
 export default async function HomeLoanPage() {
   const u = await getUser();
-  const city = u?.preferred_cities ? (db.prepare("SELECT name FROM cities WHERE slug = ?").get(u.preferred_cities.split(",")[0]) as { name: string } | undefined)?.name : undefined;
+  const city = u?.preferred_cities ? (await db.prepare("SELECT name FROM cities WHERE slug = ?").get(u.preferred_cities.split(",")[0]) as { name: string } | undefined)?.name : undefined;
   const me = u ? { name: u.name ?? "", phone: u.phone ?? "", email: u.email ?? "", city: city ?? "" } : null;
   const rows = [...BANK_RATES].sort((a, b) => a.min - b.min);
   return (

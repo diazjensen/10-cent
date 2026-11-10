@@ -3,13 +3,13 @@ import { db } from "@/lib/db";
 import { getCities } from "@/lib/listings";
 import type { ProjectDraft } from "./project-schema";
 
-export function projectToDraft(id: number): (ProjectDraft & { _builder_id: number; _approved: number; _featured: number; _slug: string; _name: string }) | null {
-  const p = db.prepare("SELECT * FROM projects WHERE id = ?").get(id) as Record<string, unknown> | undefined;
+export async function projectToDraft(id: number): Promise<(ProjectDraft & { _builder_id: number; _approved: number; _featured: number; _slug: string; _name: string }) | null> {
+  const p = await db.prepare("SELECT * FROM projects WHERE id = ?").get(id) as Record<string, unknown> | undefined;
   if (!p) return null;
   const s = (v: unknown) => (v == null ? "" : String(v));
-  const towers = db.prepare("SELECT * FROM project_towers WHERE project_id = ? ORDER BY id").all(id) as Array<Record<string, unknown>>;
-  const units = db.prepare("SELECT * FROM project_unit_types WHERE project_id = ? ORDER BY price").all(id) as Array<Record<string, unknown>>;
-  const media = db.prepare("SELECT url FROM project_media WHERE project_id = ? AND kind = 'photo' ORDER BY sort").all(id) as { url: string }[];
+  const towers = await db.prepare("SELECT * FROM project_towers WHERE project_id = ? ORDER BY id").all(id) as Array<Record<string, unknown>>;
+  const units = await db.prepare("SELECT * FROM project_unit_types WHERE project_id = ? ORDER BY price").all(id) as Array<Record<string, unknown>>;
+  const media = await db.prepare("SELECT url FROM project_media WHERE project_id = ? AND kind = 'photo' ORDER BY sort").all(id) as { url: string }[];
   const json = <T,>(v: unknown, d: T): T => { try { return v ? (JSON.parse(String(v)) as T) : d; } catch { return d; } };
   const adv = json<Array<{ name: string; distance: string }>>(p.location_advantages, []);
   return {
@@ -26,8 +26,8 @@ export function projectToDraft(id: number): (ProjectDraft & { _builder_id: numbe
   };
 }
 
-export function formData() {
-  const cities = getCities().map((c) => ({ id: c.id, name: c.name, state: c.state, lat: c.lat, lng: c.lng }));
-  const localities = db.prepare("SELECT id, city_id, name, lat, lng FROM localities ORDER BY name").all() as Array<{ id: number; city_id: number; name: string; lat: number; lng: number }>;
+export async function formData() {
+  const cities = (await getCities()).map((c) => ({ id: c.id, name: c.name, state: c.state, lat: c.lat, lng: c.lng }));
+  const localities = await db.prepare("SELECT id, city_id, name, lat, lng FROM localities ORDER BY name").all() as Array<{ id: number; city_id: number; name: string; lat: number; lng: number }>;
   return { cities, localities };
 }

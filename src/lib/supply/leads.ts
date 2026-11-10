@@ -13,7 +13,7 @@ export function parseLeadFilters(sp: Record<string, unknown>): LeadFilters {
 }
 
 /** Leads for an agent/builder across listings and projects (PRD B7). */
-export function queryLeads(posterId: number, f: LeadFilters, limit = 50, offset = 0) {
+export async function queryLeads(posterId: number, f: LeadFilters, limit = 50, offset = 0) {
   const where = ["ld.poster_id = ?"];
   const args: (string | number)[] = [posterId];
   if (f.status && ["new", "contacted", "spam", "closed"].includes(f.status)) { where.push("ld.status = ?"); args.push(f.status); }
@@ -26,14 +26,14 @@ export function queryLeads(posterId: number, f: LeadFilters, limit = 50, offset 
   if (f.to && /^\d{4}-\d{2}-\d{2}$/.test(f.to)) { where.push("ld.created_at <= ?"); args.push(`${f.to}T23:59:59.999Z`); }
   if (f.q && f.q.trim()) { const like = `%${f.q.trim()}%`; where.push("(ld.name LIKE ? OR ld.phone LIKE ? OR ld.email LIKE ? OR ld.message LIKE ?)"); args.push(like, like, like, like); }
   const w = where.join(" AND ");
-  const total = (db.prepare(`SELECT COUNT(*) n FROM leads ld WHERE ${w}`).get(...args) as { n: number }).n;
-  const rows = db.prepare(
-    `SELECT ld.id, ld.created_at, ld.name, ld.phone, ld.email, ld.message, ld.channel, ld.status, ld.listing_id, l.title listing_title,
+  const total = (await db.prepare(`SELECT COUNT(*) n FROM leads ld WHERE ${w}`).get(...args) as { n: number }).n;
+  const rows = await db.prepare(
+      `SELECT ld.id, ld.created_at, ld.name, ld.phone, ld.email, ld.message, ld.channel, ld.status, ld.listing_id, l.title listing_title,
             ld.project_id, p.name project_name, p.slug project_slug, COALESCE(lo1.name, lo2.name) locality
      FROM leads ld LEFT JOIN listings l ON l.id = ld.listing_id LEFT JOIN projects p ON p.id = ld.project_id
        LEFT JOIN localities lo1 ON lo1.id = l.locality_id LEFT JOIN localities lo2 ON lo2.id = p.locality_id
      WHERE ${w} ORDER BY ld.created_at DESC ${limit > 0 ? `LIMIT ${limit} OFFSET ${offset}` : ""}`
-  ).all(...args) as LeadRow[];
+    ).all(...args) as LeadRow[];
   return { rows, total };
 }
 

@@ -11,7 +11,7 @@ export const metadata: Metadata = { title: "Add project", robots: { index: false
 export default async function NewProject() {
   const { subject } = await dashboardContext("/dashboard/projects/new");
   if (subject.role !== "builder" && subject.role !== "admin") redirect("/dashboard");
-  const { cities, localities } = formData();
+  const { cities, localities } = await formData();
   return (
     <div>
       <Breadcrumbs items={[{ label: "Projects", href: "/dashboard/projects" }, { label: "New project" }]} />

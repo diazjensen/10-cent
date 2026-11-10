@@ -1,7 +1,7 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
-  serverExternalPackages: ["better-sqlite3"],
+  serverExternalPackages: ["pg"],
   poweredByHeader: false,
   async rewrites() {
     return [{ source: "/property-in-:city", destination: "/city/:city" }];

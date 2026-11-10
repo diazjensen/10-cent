@@ -20,10 +20,10 @@ export default async function PostPropertyPage({ searchParams }: PageProps<"/pos
   if (!user) return <Landing />;
 
   const editId = typeof sp.edit === "string" ? Number(sp.edit) || null : null;
-  let initial: Omit<NonNullable<ReturnType<typeof listingToDraft>>, "_user_id" | "_status"> | null = null;
+  let initial: Omit<NonNullable<Awaited<ReturnType<typeof listingToDraft>>>, "_user_id" | "_status"> | null = null;
   let status: string | undefined;
   if (editId) {
-    const draft = listingToDraft(editId);
+    const draft = await listingToDraft(editId);
     if (!draft || (draft._user_id !== user.id && user.role !== "admin")) {
       return (
         <Container className="py-16 max-w-xl">
@@ -48,14 +48,14 @@ export default async function PostPropertyPage({ searchParams }: PageProps<"/pos
     status = _status;
   }
 
-  const cities = getCities().map((c) => ({ id: c.id, name: c.name, state: c.state, lat: c.lat, lng: c.lng }));
-  const localities = db.prepare("SELECT id, city_id, name, lat, lng FROM localities ORDER BY name").all() as Array<{ id: number; city_id: number; name: string; lat: number; lng: number }>;
-  const avgRows = db.prepare(
-    `SELECT t.locality_id, t.avg_price_sqft psf, t.avg_rent_2bhk rent2 FROM price_trends t
+  const cities = (await getCities()).map((c) => ({ id: c.id, name: c.name, state: c.state, lat: c.lat, lng: c.lng }));
+  const localities = await db.prepare("SELECT id, city_id, name, lat, lng FROM localities ORDER BY name").all() as Array<{ id: number; city_id: number; name: string; lat: number; lng: number }>;
+  const avgRows = await db.prepare(
+      `SELECT t.locality_id, t.avg_price_sqft psf, t.avg_rent_2bhk rent2 FROM price_trends t
      JOIN (SELECT locality_id, MAX(month) m FROM price_trends GROUP BY locality_id) x ON x.locality_id = t.locality_id AND x.m = t.month`
-  ).all() as Array<{ locality_id: number; psf: number; rent2: number }>;
+    ).all() as Array<{ locality_id: number; psf: number; rent2: number }>;
   const averages = Object.fromEntries(avgRows.map((r) => [r.locality_id, { psf: r.psf, rent2: r.rent2 }]));
-  const q = listingQuota(user.id);
+  const q = await listingQuota(user.id);
 
   return (
     <Container className="py-8 md:py-10 max-w-4xl">
@@ -82,9 +82,9 @@ export default async function PostPropertyPage({ searchParams }: PageProps<"/pos
   );
 }
 
-function Landing() {
+async function Landing() {
   const loginHref = "/login?next=/post-property&intent=post";
-  const live = (db.prepare("SELECT COUNT(*) n FROM listings WHERE status = 'live'").get() as { n: number }).n;
+  const live = (await db.prepare("SELECT COUNT(*) n FROM listings WHERE status = 'live'").get() as { n: number }).n;
   return (
     <>
       <section className="border-b border-line">

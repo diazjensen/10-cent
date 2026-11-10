@@ -14,7 +14,7 @@ export default async function SuccessPage({ searchParams }: PageProps<"/post-pro
   const sp = await searchParams;
   const id = Number(sp.id);
   const user = await requireUser(`/post-property/success?id=${id}`);
-  const l = db.prepare("SELECT id, title, status, user_id, auto_flags, created_at, verification_requested_at, verified FROM listings WHERE id = ?").get(id) as
+  const l = await db.prepare("SELECT id, title, status, user_id, auto_flags, created_at, verification_requested_at, verified FROM listings WHERE id = ?").get(id) as
     | { id: number; title: string; status: string; user_id: number; auto_flags: string | null; created_at: string; verification_requested_at: string | null; verified: number }
     | undefined;
   if (!l || (l.user_id !== user.id && user.role !== "admin")) notFound();

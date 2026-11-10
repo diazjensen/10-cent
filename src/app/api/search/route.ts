@@ -9,14 +9,14 @@ import { flattenParams } from "@/lib/seeker/search-params";
 export async function GET(req: Request) {
   const url = new URL(req.url);
   const ip = (req.headers.get("x-forwarded-for") || "").split(",")[0].trim() || "local";
-  if (!rateLimit(`api:search:${ip}`, 600, 3600).ok) return Response.json({ error: "Too many requests" }, { status: 429 });
+  if (!(await rateLimit(`api:search:${ip}`, 600, 3600)).ok) return Response.json({ error: "Too many requests" }, { status: 429 });
   const p = flattenParams(Object.fromEntries(url.searchParams.entries()));
   if (url.searchParams.get("count") === "1") {
-    const r = searchListings(p, { pageSize: 1 });
+    const r = await searchListings(p, { pageSize: 1 });
     return Response.json({ total: r.total });
   }
   const size = Math.min(50, Math.max(1, Number(url.searchParams.get("size")) || 20));
-  const r = searchListings(p, { pageSize: size });
+  const r = await searchListings(p, { pageSize: size });
   return Response.json({
     total: r.total, page: r.page, pages: r.pages,
     rows: r.rows.map((l) => ({

@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { requireAdmin } from "@/lib/auth";
+import { pageNum } from "@/lib/admin/guard";
 import { db } from "@/lib/db";
 import { timeAgo } from "@/lib/format";
 import { Badge, Notice } from "@/components/ui";
@@ -16,16 +17,16 @@ export default async function OutboxPage({ searchParams }: PageProps<"/admin/out
   const sp = await searchParams;
   const s = (k: string) => (typeof sp[k] === "string" ? (sp[k] as string).trim() : "");
   const channel = s("channel"), status = s("status") || "queued", q = s("q"), kind = s("kind");
-  const page = Math.max(1, Number(s("page")) || 1);
+  const page = pageNum(s("page"));
   const where = ["1=1"]; const args: unknown[] = [];
   if (channel) { where.push("channel = ?"); args.push(channel); }
   if (status !== "all") { where.push("status = ?"); args.push(status); }
   if (q) { where.push("(recipient LIKE ? OR body LIKE ?)"); args.push(`%${q.replace(/^\+?91/, "")}%`, `%${q}%`); }
   if (kind === "otp") where.push("body LIKE '%verification code%'");
   if (kind === "other") where.push("body NOT LIKE '%verification code%'");
-  const total = (db.prepare(`SELECT COUNT(*) n FROM outbox WHERE ${where.join(" AND ")}`).get(...args) as { n: number }).n;
-  const rows = db.prepare(`SELECT * FROM outbox WHERE ${where.join(" AND ")} ORDER BY id DESC LIMIT ${PER} OFFSET ${(page - 1) * PER}`).all(...args) as { id: number; channel: string; recipient: string; subject: string | null; body: string; status: string; created_at: string }[];
-  const byCh = db.prepare("SELECT channel, COUNT(*) n FROM outbox WHERE status = 'queued' GROUP BY channel").all() as { channel: string; n: number }[];
+  const total = (await db.prepare(`SELECT COUNT(*) n FROM outbox WHERE ${where.join(" AND ")}`).get(...args) as { n: number }).n;
+  const rows = await db.prepare(`SELECT * FROM outbox WHERE ${where.join(" AND ")} ORDER BY id DESC LIMIT ${PER} OFFSET ${(page - 1) * PER}`).all(...args) as { id: number; channel: string; recipient: string; subject: string | null; body: string; status: string; created_at: string }[];
+  const byCh = await db.prepare("SELECT channel, COUNT(*) n FROM outbox WHERE status = 'queued' GROUP BY channel").all() as { channel: string; n: number }[];
   const params = { channel, status, q, kind };
 
   return (

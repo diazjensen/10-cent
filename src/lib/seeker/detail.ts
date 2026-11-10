@@ -22,9 +22,9 @@ export type ListingDetail = {
   poster_rating: number | null; poster_rating_count: number | null; poster_experience: number | null;
 };
 
-export function getListingDetail(id: number): ListingDetail | undefined {
-  if (!Number.isInteger(id) || id <= 0) return undefined;
-  return db.prepare(`
+export async function getListingDetail(id: number): Promise<ListingDetail | undefined> {
+  if (!Number.isInteger(id) || id <= 0 || id > 2147483647) return undefined;
+  return await db.prepare(`
     SELECT l.*, c.name city_name, c.slug city_slug, c.state,
       lo.name locality_name, lo.slug locality_slug, lo.landmarks,
       p.name project_name, p.slug project_slug, p.rera_state project_rera_state,
@@ -41,47 +41,47 @@ export function getListingDetail(id: number): ListingDetail | undefined {
 }
 
 export type Media = { id: number; kind: string; url: string; caption: string | null };
-export function getMedia(id: number) {
-  return db.prepare("SELECT id, kind, url, caption FROM listing_media WHERE listing_id = ? ORDER BY sort, id").all(id) as Media[];
+export async function getMedia(id: number) {
+  return await db.prepare("SELECT id, kind, url, caption FROM listing_media WHERE listing_id = ? ORDER BY sort, id").all(id) as Media[];
 }
 
-export function getAmenities(id: number) {
-  return (db.prepare("SELECT amenity FROM listing_amenities WHERE listing_id = ?").all(id) as { amenity: string }[]).map((r) => r.amenity);
+export async function getAmenities(id: number) {
+  return (await db.prepare("SELECT amenity FROM listing_amenities WHERE listing_id = ?").all(id) as { amenity: string }[]).map((r) => r.amenity);
 }
 
-export function getPriceTrend(localityId: number | null) {
+export async function getPriceTrend(localityId: number | null) {
   if (!localityId) return [];
-  return db.prepare("SELECT month, avg_price_sqft, avg_rent_2bhk FROM price_trends WHERE locality_id = ? ORDER BY month").all(localityId) as Array<{ month: string; avg_price_sqft: number; avg_rent_2bhk: number }>;
+  return await db.prepare("SELECT month, avg_price_sqft, avg_rent_2bhk FROM price_trends WHERE locality_id = ? ORDER BY month").all(localityId) as Array<{ month: string; avg_price_sqft: number; avg_rent_2bhk: number }>;
 }
 
 /** Same city, transaction and property type, price within ±35%, closest price first. */
-export function getSimilar(l: ListingDetail, limit = 4): ListingCard[] {
-  return db.prepare(`SELECT ${CARD_SELECT} ${CARD_FROM}
+export async function getSimilar(l: ListingDetail, limit = 4): Promise<ListingCard[]> {
+  return await db.prepare(`SELECT ${CARD_SELECT} ${CARD_FROM}
     WHERE l.status = 'live' AND l.id <> ? AND l.city_id = ? AND l.transaction_type = ? AND l.property_type = ?
       AND l.price BETWEEN ? AND ?
     ORDER BY (l.locality_id = ?) DESC, ABS(l.price - ?) ASC LIMIT ?`).all(
-    l.id, l.city_id, l.transaction_type, l.property_type, Math.round(l.price * 0.65), Math.round(l.price * 1.35), l.locality_id ?? -1, l.price, limit
-  ) as ListingCard[];
+      l.id, l.city_id, l.transaction_type, l.property_type, Math.round(l.price * 0.65), Math.round(l.price * 1.35), l.locality_id ?? -1, l.price, limit
+    ) as ListingCard[];
 }
 
-export function shortlistIds(userId: number | undefined | null): Set<number> {
+export async function shortlistIds(userId: number | undefined | null): Promise<Set<number>> {
   if (!userId) return new Set();
-  return new Set((db.prepare("SELECT listing_id FROM shortlists WHERE user_id = ?").all(userId) as { listing_id: number }[]).map((r) => r.listing_id));
+  return new Set((await db.prepare("SELECT listing_id FROM shortlists WHERE user_id = ?").all(userId) as { listing_id: number }[]).map((r) => r.listing_id));
 }
 
 /** Records a detail page view: listings.views, daily stats and seen_listings for signed-in users. */
-export function trackView(listingId: number, userId: number | null) {
-  db.prepare("UPDATE listings SET views = views + 1 WHERE id = ?").run(listingId);
-  bumpStat(listingId, "views");
+export async function trackView(listingId: number, userId: number | null) {
+  await db.prepare("UPDATE listings SET views = views + 1 WHERE id = ?").run(listingId);
+  await bumpStat(listingId, "views");
   if (userId) {
-    db.prepare("INSERT INTO seen_listings (user_id, listing_id, seen_at) VALUES (?,?,?) ON CONFLICT(user_id, listing_id) DO UPDATE SET seen_at = excluded.seen_at")
-      .run(userId, listingId, new Date().toISOString());
+    await db.prepare("INSERT INTO seen_listings (user_id, listing_id, seen_at) VALUES (?,?,?) ON CONFLICT(user_id, listing_id) DO UPDATE SET seen_at = excluded.seen_at")
+            .run(userId, listingId, new Date().toISOString());
   }
 }
 
-export function activeBanner(placement: string) {
+export async function activeBanner(placement: string) {
   const now = new Date().toISOString();
-  return db.prepare(`SELECT id, title, subtitle, link FROM banners WHERE placement = ? AND active = 1
+  return await db.prepare(`SELECT id, title, subtitle, link FROM banners WHERE placement = ? AND active = 1
     AND (starts_at IS NULL OR starts_at <= ?) AND (ends_at IS NULL OR ends_at >= ?) ORDER BY id DESC LIMIT 1`).get(placement, now, now) as
     | { id: number; title: string; subtitle: string | null; link: string | null }
     | undefined;

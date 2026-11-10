@@ -13,11 +13,11 @@ export const metadata: Metadata = { title: "Edit project", robots: { index: fals
 export default async function EditProject({ params }: PageProps<"/dashboard/projects/[id]">) {
   const { id } = await params;
   const { subject, viewer } = await dashboardContext(`/dashboard/projects/${id}`);
-  const draft = projectToDraft(Number(id));
+  const draft = await projectToDraft(Number(id));
   if (!draft || (draft._builder_id !== subject.id && viewer.role !== "admin")) notFound();
   const { _builder_id, _approved, _featured, _slug, _name, ...initial } = draft;
   void _builder_id;
-  const { cities, localities } = formData();
+  const { cities, localities } = await formData();
   return (
     <div>
       <Breadcrumbs items={[{ label: "Projects", href: "/dashboard/projects" }, { label: _name }]} />

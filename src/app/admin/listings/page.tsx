@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { requireAdmin } from "@/lib/auth";
+import { pgInt, pageNum } from "@/lib/admin/guard";
 import { db } from "@/lib/db";
 import { getCities } from "@/lib/listings";
 import { formatPhone, timeAgo } from "@/lib/format";
@@ -19,11 +20,11 @@ export default async function AllListings({ searchParams }: PageProps<"/admin/li
   const sp = await searchParams;
   const s = (k: string) => (typeof sp[k] === "string" ? (sp[k] as string).trim() : "");
   const q = s("q"), city = s("city"), status = s("status"), phone = s("phone").replace(/\D/g, "").slice(-10), flag = s("flag");
-  const page = Math.max(1, Number(s("page")) || 1);
+  const page = pageNum(s("page"));
 
   const where: string[] = ["1=1"]; const args: unknown[] = [];
   if (q) {
-    if (/^#?\d+$/.test(q)) { where.push("l.id = ?"); args.push(Number(q.replace("#", ""))); }
+    if (/^#?\d+$/.test(q)) { where.push("l.id = ?"); args.push(pgInt(q.replace("#", ""))); }
     else { where.push("(l.title LIKE ? OR lo.name LIKE ? OR l.address LIKE ?)"); args.push(`%${q}%`, `%${q}%`, `%${q}%`); }
   }
   if (city) { where.push("c.slug = ?"); args.push(city); }
@@ -33,8 +34,8 @@ export default async function AllListings({ searchParams }: PageProps<"/admin/li
   if (flag === "premium") where.push("l.premium = 1");
   if (flag === "verified") where.push("l.verified = 1");
   const from = `FROM listings l JOIN users u ON u.id = l.user_id JOIN cities c ON c.id = l.city_id LEFT JOIN localities lo ON lo.id = l.locality_id WHERE ${where.join(" AND ")}`;
-  const total = (db.prepare(`SELECT COUNT(*) n ${from}`).get(...args) as { n: number }).n;
-  const rows = db.prepare(`SELECT l.id, l.title, l.status, l.price, l.transaction_type, c.name city_name, lo.name locality_name, u.name poster_name, u.phone poster_phone, l.user_id, l.created_at, l.featured, l.premium, l.verified, l.posted_by_type ${from} ORDER BY l.id DESC LIMIT ${PER} OFFSET ${(page - 1) * PER}`).all(...args) as Row[];
+  const total = (await db.prepare(`SELECT COUNT(*) n ${from}`).get(...args) as { n: number }).n;
+  const rows = await db.prepare(`SELECT l.id, l.title, l.status, l.price, l.transaction_type, c.name city_name, lo.name locality_name, u.name poster_name, u.phone poster_phone, l.user_id, l.created_at, l.featured, l.premium, l.verified, l.posted_by_type ${from} ORDER BY l.id DESC LIMIT ${PER} OFFSET ${(page - 1) * PER}`).all(...args) as Row[];
   const pages = Math.max(1, Math.ceil(total / PER));
   const params = { q, city, status, phone, flag };
 
@@ -46,7 +47,7 @@ export default async function AllListings({ searchParams }: PageProps<"/admin/li
         <FInput label="Poster phone" name="phone" defaultValue={phone} inputMode="numeric" placeholder="98765…" className="w-36" />
         <FSelect label="City" name="city" defaultValue={city}>
           <option value="">All</option>
-          {getCities().map((c) => <option key={c.slug} value={c.slug}>{c.name}</option>)}
+          {(await getCities()).map((c) => <option key={c.slug} value={c.slug}>{c.name}</option>)}
         </FSelect>
         <FSelect label="Status" name="status" defaultValue={status}>
           <option value="">Any</option>

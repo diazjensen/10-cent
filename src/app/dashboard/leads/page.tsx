@@ -23,13 +23,13 @@ export default async function LeadsPage({ searchParams }: PageProps<"/dashboard/
   if (!["agent", "builder", "admin"].includes(subject.role)) redirect("/dashboard/responses");
   const f = parseLeadFilters(sp);
   const page = Math.max(1, Number(sp.page) || 1);
-  const { rows, total } = queryLeads(subject.id, f, PER, (page - 1) * PER);
-  const projects = db.prepare("SELECT id, name FROM projects WHERE builder_id = ? ORDER BY name").all(subject.id) as { id: number; name: string }[];
-  const stats = db.prepare(
-    `SELECT COUNT(*) total, SUM(created_at >= ?) last7, SUM(status = 'new') fresh, SUM(project_id IS NOT NULL) project
+  const { rows, total } = await queryLeads(subject.id, f, PER, (page - 1) * PER);
+  const projects = await db.prepare("SELECT id, name FROM projects WHERE builder_id = ? ORDER BY name").all(subject.id) as { id: number; name: string }[];
+  const stats = await db.prepare(
+      `SELECT COUNT(*) total, SUM(created_at >= ?) last7, SUM(status = 'new') fresh, SUM(project_id IS NOT NULL) project
      FROM leads WHERE poster_id = ?`
-  ).get(new Date(nowMs() - 7 * 86400000).toISOString(), subject.id) as { total: number; last7: number | null; fresh: number | null; project: number | null };
-  const hook = getWebhook(subject.id);
+    ).get(new Date(nowMs() - 7 * 86400000).toISOString(), subject.id) as { total: number; last7: number | null; fresh: number | null; project: number | null };
+  const hook = await getWebhook(subject.id);
   if (hook?.active && !impersonating) after(() => syncPendingLeads(subject.id));
 
   const qs = new URLSearchParams(Object.entries(f).filter(([, v]) => v) as [string, string][]).toString();

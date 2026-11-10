@@ -29,11 +29,11 @@ function mainArea(l: ListingDetail) {
 
 export async function generateMetadata({ params }: PageProps<"/property/[id]">): Promise<Metadata> {
   const { id } = await params;
-  const l = getListingDetail(Number(id));
+  const l = await getListingDetail(Number(id));
   if (!l) return { title: "Property not found" };
   const head = listingHeadline(l);
   const price = l.transaction_type === "sell" ? formatPrice(l.price) : `₹${formatINR(l.price)}/month`;
-  const cover = getMedia(l.id).find((m) => m.kind === "photo")?.url;
+  const cover = (await getMedia(l.id)).find((m) => m.kind === "photo")?.url;
   const description = `${head}, ${l.city_name}. ${price}${mainArea(l) ? `, ${formatArea(mainArea(l))}` : ""}. Posted by ${l.posted_by_type}${l.verified ? ", verified by 10cent" : ""}. ${(l.description ?? "").slice(0, 120)}`;
   return {
     title: `${head} · ${price}`,
@@ -46,18 +46,18 @@ export async function generateMetadata({ params }: PageProps<"/property/[id]">):
 
 export default async function PropertyPage({ params, searchParams }: PageProps<"/property/[id]">) {
   const [{ id }, sp, user] = await Promise.all([params, searchParams, getUser()]);
-  const l = getListingDetail(Number(id));
+  const l = await getListingDetail(Number(id));
   if (!l) notFound();
   const isOwner = !!user && user.id === l.user_id;
   const isStaff = can(user, "moderation");
   if (l.status !== "live" && !isOwner && !isStaff) notFound();
-  if (l.status === "live" && !isOwner) trackView(l.id, user?.id ?? null);
+  if (l.status === "live" && !isOwner) await trackView(l.id, user?.id ?? null);
 
-  const media = getMedia(l.id);
-  const amenities = getAmenities(l.id);
-  const trend = getPriceTrend(l.locality_id);
-  const similar = l.status === "live" ? getSimilar(l) : [];
-  const saved = shortlistIds(user?.id);
+  const media = await getMedia(l.id);
+  const amenities = await getAmenities(l.id);
+  const trend = await getPriceTrend(l.locality_id);
+  const similar = l.status === "live" ? await getSimilar(l) : [];
+  const saved = await shortlistIds(user?.id);
   const landmarks = parseLandmarks(l.landmarks);
   const near = l.lat != null && l.lng != null
     ? landmarks.map((m) => ({ ...m, km: distanceKm({ lat: l.lat!, lng: l.lng! }, m) })).sort((a, b) => a.km - b.km)

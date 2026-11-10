@@ -13,10 +13,10 @@ export function priceText(l: { price: number; transaction_type: string }) {
 }
 
 /** One listing laid out for a moderator: photos, facts, automated flags, poster history and actions. */
-export function ListingReview({ l, selectable, full }: { l: AdminListing; selectable?: boolean; full?: boolean }) {
-  const { flags, ppsf, localityAvg } = computeFlags(l);
-  const hist = posterHistory(l.user_id);
-  const media = photos(l.id);
+export async function ListingReview({ l, selectable, full }: { l: AdminListing; selectable?: boolean; full?: boolean }) {
+  const { flags, ppsf, localityAvg } = await computeFlags(l);
+  const hist = await posterHistory(l.user_id);
+  const media = await photos(l.id);
   const area = areaOf(l);
   const facts: Array<[string, string]> = [
     ["Price", `${priceText(l)}${l.price_negotiable ? " · negotiable" : ""}`],

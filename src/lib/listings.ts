@@ -90,29 +90,34 @@ export type SearchFilters = {
   page?: string;
 };
 
-const list = (s?: string) => (s ? s.split(",").map((x) => x.trim()).filter(Boolean) : []);
-const num = (s?: string) => {
+const clean = (s: string) => s.replace(/\u0000/g, "");
+const list = (s?: string) => (s ? clean(s).split(",").map((x) => x.trim()).filter(Boolean) : []);
+/** Whole number within [0, max] (Postgres rejects fractions for int/bigint params and overflows past the column range). */
+const num = (s?: string, max = 9e15) => {
   if (s == null || s === "") return null;
   const n = Number(s);
-  return Number.isFinite(n) ? n : null;
+  return Number.isFinite(n) ? Math.min(max, Math.max(0, Math.floor(n))) : null;
 };
+const AREA_MAX = 2e9;
+/** Positive int4 id, or null. */
+const idNum = (s?: string) => (s && /^\d{1,9}$/.test(s.trim()) && Number(s) > 0 ? Number(s) : null);
 
 export function buildSearchWhere(f: SearchFilters) {
   const where: string[] = ["l.status = 'live'"];
   const args: (string | number)[] = [];
 
-  if (f.city) { where.push("c.slug = ?"); args.push(f.city); }
-  if (f.tx) { where.push("l.transaction_type = ?"); args.push(f.tx); }
-  if (f.cat) { where.push("l.category = ?"); args.push(f.cat); }
+  if (f.city) { where.push("c.slug = ?"); args.push(clean(f.city)); }
+  if (f.tx) { where.push("l.transaction_type = ?"); args.push(clean(f.tx)); }
+  if (f.cat) { where.push("l.category = ?"); args.push(clean(f.cat)); }
   const types = list(f.type);
   if (types.length) { where.push(`l.property_type IN (${types.map(() => "?").join(",")})`); args.push(...types); }
-  const bhks = list(f.bhk).map(Number).filter((n) => n > 0);
+  const bhks = list(f.bhk).map(Number).filter((n) => Number.isInteger(n) && n > 0 && n < 100);
   if (bhks.length) {
     const parts = bhks.map((b) => (b >= 5 ? "l.bhk >= 5" : "l.bhk = ?"));
     where.push(`(${parts.join(" OR ")})`);
     args.push(...bhks.filter((b) => b < 5));
   }
-  const min = num(f.min), max = num(f.max), amin = num(f.amin), amax = num(f.amax);
+  const min = num(f.min), max = num(f.max), amin = num(f.amin, AREA_MAX), amax = num(f.amax, AREA_MAX);
   if (min != null) { where.push("l.price >= ?"); args.push(min); }
   if (max != null) { where.push("l.price <= ?"); args.push(max); }
   if (amin != null) { where.push("COALESCE(l.carpet_area, l.super_area, l.builtup_area, l.plot_area) >= ?"); args.push(amin); }
@@ -126,9 +131,9 @@ export function buildSearchWhere(f: SearchFilters) {
     where.push(`(${tenants.map(() => "(',' || l.tenant_types || ',') LIKE ?").join(" OR ")})`);
     args.push(...tenants.map((t) => `%,${t},%`));
   }
-  if (f.avail) { where.push("(l.available_from IS NULL OR l.available_from <= ?)"); args.push(f.avail); }
-  if (f.cs) { where.push("l.construction_status = ?"); args.push(f.cs); }
-  if (f.poss) { where.push("l.possession_date IS NOT NULL AND substr(l.possession_date,1,4) <= ?"); args.push(f.poss); }
+  if (f.avail && /^\d{4}-\d{2}-\d{2}$/.test(f.avail)) { where.push("(l.available_from IS NULL OR l.available_from <= ?)"); args.push(f.avail); }
+  if (f.cs) { where.push("l.construction_status = ?"); args.push(clean(f.cs)); }
+  if (f.poss && /^\d{4}$/.test(f.poss)) { where.push("l.possession_date IS NOT NULL AND substr(l.possession_date,1,4) <= ?"); args.push(f.poss); }
   if (f.newlaunch === "1") where.push("l.new_launch = 1");
   if (f.rera === "1") where.push("l.rera_id IS NOT NULL AND l.rera_id <> ''");
   if (f.verified === "1") where.push("l.verified = 1");
@@ -137,12 +142,12 @@ export function buildSearchWhere(f: SearchFilters) {
     where.push("EXISTS (SELECT 1 FROM listing_amenities la WHERE la.listing_id = l.id AND la.amenity = ?)");
     args.push(a);
   }
-  const locs = list(f.loc).map(Number).filter(Boolean);
+  const locs = list(f.loc).map(idNum).filter((n): n is number => n != null);
   if (locs.length) { where.push(`l.locality_id IN (${locs.map(() => "?").join(",")})`); args.push(...locs); }
-  if (f.project) { where.push("l.project_id = ?"); args.push(Number(f.project)); }
-  if (f.poster) { where.push("l.user_id = ?"); args.push(Number(f.poster)); }
+  if (f.project) { where.push("l.project_id = ?"); args.push(idNum(f.project) ?? 0); }
+  if (f.poster) { where.push("l.user_id = ?"); args.push(idNum(f.poster) ?? 0); }
   if (f.q && f.q.trim()) {
-    const like = `%${f.q.trim()}%`;
+    const like = `%${clean(f.q.trim())}%`;
     where.push(`(l.title LIKE ? OR lo.name LIKE ? OR c.name LIKE ? OR p.name LIKE ? OR pr.company_name LIKE ? OR l.address LIKE ? OR lo.landmarks LIKE ?)`);
     args.push(like, like, like, like, like, like, like);
   }
@@ -169,7 +174,7 @@ export function buildSearchWhere(f: SearchFilters) {
 }
 
 const SORT_SQL: Record<string, string> = {
-  relevance: "l.boost DESC, l.premium DESC, l.featured DESC, l.verified DESC, photo_count > 0 DESC, l.published_at DESC",
+  relevance: "l.boost DESC, l.premium DESC, l.featured DESC, l.verified DESC, (SELECT COUNT(*) FROM listing_media pm WHERE pm.listing_id = l.id AND pm.kind = 'photo') > 0 DESC, l.published_at DESC",
   price_asc: "l.price ASC",
   price_desc: "l.price DESC",
   newest: "l.published_at DESC",
@@ -178,49 +183,51 @@ const SORT_SQL: Record<string, string> = {
 
 export const PAGE_SIZE = 20;
 
-export function searchListings(f: SearchFilters, opts: { pageSize?: number; all?: boolean } = {}) {
+export async function searchListings(f: SearchFilters, opts: { pageSize?: number; all?: boolean } = {}) {
   const { where, args } = buildSearchWhere(f);
   const pageSize = opts.pageSize ?? PAGE_SIZE;
-  const page = Math.max(1, parseInt(f.page || "1", 10) || 1);
+  const page = Math.min(10000, Math.max(1, parseInt(f.page || "1", 10) || 1));
   const order = SORT_SQL[f.sort || "relevance"] ?? SORT_SQL.relevance;
-  const total = (db.prepare(`SELECT COUNT(*) AS n ${CARD_FROM} WHERE ${where}`).get(...args) as { n: number }).n;
+  const total = (await db.prepare(`SELECT COUNT(*) AS n ${CARD_FROM} WHERE ${where}`).get(...args) as { n: number }).n;
   const limit = opts.all ? "LIMIT 500" : `LIMIT ${pageSize} OFFSET ${(page - 1) * pageSize}`;
-  const rows = db.prepare(`SELECT ${CARD_SELECT} ${CARD_FROM} WHERE ${where} ORDER BY ${order}, l.id DESC ${limit}`).all(...args) as ListingCard[];
+  const rows = await db.prepare(`SELECT ${CARD_SELECT} ${CARD_FROM} WHERE ${where} ORDER BY ${order}, l.id DESC ${limit}`).all(...args) as ListingCard[];
   return { rows, total, page, pageSize, pages: Math.max(1, Math.ceil(total / pageSize)) };
 }
 
-export function getCards(ids: number[]): ListingCard[] {
+export async function getCards(ids: number[]): Promise<ListingCard[]> {
   if (!ids.length) return [];
-  const rows = db.prepare(`SELECT ${CARD_SELECT} ${CARD_FROM} WHERE l.id IN (${ids.map(() => "?").join(",")})`).all(...ids) as ListingCard[];
+  const rows = await db.prepare(`SELECT ${CARD_SELECT} ${CARD_FROM} WHERE l.id IN (${ids.map(() => "?").join(",")})`).all(...ids) as ListingCard[];
   const byId = new Map(rows.map((r) => [r.id, r]));
   return ids.map((id) => byId.get(id)).filter(Boolean) as ListingCard[];
 }
 
 /** Records impressions for listings shown in a result list (PRD O5). */
-export function recordImpressions(ids: number[]) {
+export async function recordImpressions(ids: number[]) {
   if (!ids.length) return;
   const day = new Date().toISOString().slice(0, 10);
   const stmt = db.prepare(
-    "INSERT INTO listing_stats (listing_id, day, impressions) VALUES (?, ?, 1) ON CONFLICT(listing_id, day) DO UPDATE SET impressions = impressions + 1"
+    "INSERT INTO listing_stats (listing_id, day, impressions) VALUES (?, ?, 1) ON CONFLICT(listing_id, day) DO UPDATE SET impressions = listing_stats.impressions + 1"
   );
-  db.transaction(() => ids.forEach((id) => stmt.run(id, day)))();
+  // Lock rows in a consistent (ascending) order so concurrent searches can't deadlock each other.
+  const sorted = [...new Set(ids)].sort((a, b) => a - b);
+  await db.transaction(async () => { for (const id of sorted) await stmt.run(id, day); })();
 }
 
-export function bumpStat(listingId: number, col: "views" | "contacts" | "shortlists", by = 1) {
+export async function bumpStat(listingId: number, col: "views" | "contacts" | "shortlists", by = 1) {
   const day = new Date().toISOString().slice(0, 10);
-  db.prepare(
-    `INSERT INTO listing_stats (listing_id, day, ${col}) VALUES (?, ?, ?) ON CONFLICT(listing_id, day) DO UPDATE SET ${col} = ${col} + ?`
-  ).run(listingId, day, by, by);
+  await db.prepare(
+        `INSERT INTO listing_stats (listing_id, day, ${col}) VALUES (?, ?, ?) ON CONFLICT(listing_id, day) DO UPDATE SET ${col} = listing_stats.${col} + ?`
+      ).run(listingId, day, by, by);
 }
 
-export function getCities() {
-  return db.prepare("SELECT * FROM cities ORDER BY sort, name").all() as Array<{ id: number; slug: string; name: string; state: string; lat: number; lng: number; is_launch: number }>;
+export async function getCities() {
+  return await db.prepare("SELECT * FROM cities ORDER BY sort, name").all() as Array<{ id: number; slug: string; name: string; state: string; lat: number; lng: number; is_launch: number }>;
 }
 
-export function getCity(slug: string) {
-  return db.prepare("SELECT * FROM cities WHERE slug = ?").get(slug) as { id: number; slug: string; name: string; state: string; lat: number; lng: number } | undefined;
+export async function getCity(slug: string) {
+  return await db.prepare("SELECT * FROM cities WHERE slug = ?").get(slug) as { id: number; slug: string; name: string; state: string; lat: number; lng: number } | undefined;
 }
 
-export function getLocalities(cityId: number) {
-  return db.prepare("SELECT id, slug, name, lat, lng, rating, trending FROM localities WHERE city_id = ? ORDER BY name").all(cityId) as Array<{ id: number; slug: string; name: string; lat: number; lng: number; rating: number | null; trending: number }>;
+export async function getLocalities(cityId: number) {
+  return await db.prepare("SELECT id, slug, name, lat, lng, rating, trending FROM localities WHERE city_id = ? ORDER BY name").all(cityId) as Array<{ id: number; slug: string; name: string; lat: number; lng: number; rating: number | null; trending: number }>;
 }

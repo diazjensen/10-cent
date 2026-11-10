@@ -11,7 +11,7 @@ export const metadata: Metadata = { title: "Bulk upload", robots: { index: false
 export default async function BulkPage() {
   const { subject } = await dashboardContext("/dashboard/bulk");
   if (!["agent", "builder", "admin"].includes(subject.role)) redirect("/dashboard");
-  const q = listingQuota(subject.id);
+  const q = await listingQuota(subject.id);
   return (
     <div className="max-w-4xl">
       <PageTitle eyebrow="Listings" title="Bulk upload" sub="Add many listings at once from a spreadsheet. Each row is validated and goes through the same checks as the form." />

@@ -16,7 +16,7 @@ const toDate = (iso: string | null) => (iso ? new Date(new Date(iso).getTime() +
 
 export default async function CouponsPage() {
   await requireAdmin("billing");
-  const rows = db.prepare("SELECT c.*, (SELECT COUNT(*) FROM orders o WHERE o.coupon_id = c.id AND o.status = 'paid') orders FROM coupons c ORDER BY c.active DESC, c.id DESC").all() as Coupon[];
+  const rows = await db.prepare("SELECT c.*, (SELECT COUNT(*) FROM orders o WHERE o.coupon_id = c.id AND o.status = 'paid') orders FROM coupons c ORDER BY c.active DESC, c.id DESC").all() as Coupon[];
   const now = new Date().toISOString();
   return (
     <div>

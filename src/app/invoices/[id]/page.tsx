@@ -25,11 +25,11 @@ export default async function InvoicePage({ params }: PageProps<"/invoices/[id]"
   const { id } = await params;
   const user = await getUser();
   if (!user) redirect(`/login?next=/invoices/${id}`);
-  const inv = db.prepare(
-    `SELECT i.*, o.user_id, o.amount_paise, o.discount_paise, o.gateway_ref, o.paid_at, o.id order_id, p.name plan_name, p.duration_days, c.code coupon_code, u.phone, u.email
+  const inv = await db.prepare(
+      `SELECT i.*, o.user_id, o.amount_paise, o.discount_paise, o.gateway_ref, o.paid_at, o.id order_id, p.name plan_name, p.duration_days, c.code coupon_code, u.phone, u.email
      FROM invoices i JOIN orders o ON o.id = i.order_id JOIN plans p ON p.id = o.plan_id LEFT JOIN coupons c ON c.id = o.coupon_id JOIN users u ON u.id = o.user_id
      WHERE i.id = ?`
-  ).get(Number(id)) as
+    ).get(Number(id)) as
     | { id: number; number: string; billing_name: string | null; billing_gstin: string | null; billing_state: string | null; taxable_paise: number; cgst_paise: number; sgst_paise: number; igst_paise: number; total_paise: number; created_at: string; user_id: number; amount_paise: number; discount_paise: number; gateway_ref: string | null; paid_at: string | null; order_id: number; plan_name: string; duration_days: number; coupon_code: string | null; phone: string | null; email: string | null }
     | undefined;
   if (!inv) notFound();

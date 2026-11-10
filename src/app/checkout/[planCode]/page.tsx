@@ -12,7 +12,7 @@ import { getPlan } from "@/lib/supply/billing";
 
 export async function generateMetadata({ params }: PageProps<"/checkout/[planCode]">): Promise<Metadata> {
   const { planCode } = await params;
-  const p = getPlan(planCode);
+  const p = await getPlan(planCode);
   return { title: p ? `Checkout: ${p.name}` : "Checkout", robots: { index: false } };
 }
 
@@ -20,12 +20,12 @@ export default async function CheckoutPage({ params }: PageProps<"/checkout/[pla
   const { planCode } = await params;
   const user = await getUser();
   if (!user) redirect(`/login?next=${encodeURIComponent(`/checkout/${planCode}`)}`);
-  const plan = getPlan(planCode);
+  const plan = await getPlan(planCode);
   if (!plan) notFound();
   if (plan.price_paise === 0) redirect("/post-property");
-  const profile = getProfile(user.id);
-  const cityState = profile?.city_id ? (db.prepare("SELECT state FROM cities WHERE id = ?").get(profile.city_id) as { state: string } | undefined)?.state : undefined;
-  const current = activePlan(user.id);
+  const profile = await getProfile(user.id);
+  const cityState = profile?.city_id ? (await db.prepare("SELECT state FROM cities WHERE id = ?").get(profile.city_id) as { state: string } | undefined)?.state : undefined;
+  const current = await activePlan(user.id);
   const features = plan.features ? (JSON.parse(plan.features) as string[]) : [];
   const role = user.role === "seeker" ? "owner" : user.role;
   const mismatch = role !== "admin" && plan.audience !== role;

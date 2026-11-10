@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { requireAdmin } from "@/lib/auth";
+import { pgInt, pageNum } from "@/lib/admin/guard";
 import { db } from "@/lib/db";
 import { formatPaise, formatPhone, formatDate } from "@/lib/format";
 import { inputClass, cx } from "@/components/ui";
@@ -19,18 +20,18 @@ export default async function OrdersPage({ searchParams }: PageProps<"/admin/bil
   const sp = await searchParams;
   const s = (k: string) => (typeof sp[k] === "string" ? (sp[k] as string).trim() : "");
   const status = s("status"), plan = s("plan"), phone = s("phone").replace(/\D/g, ""), from = s("from"), to = s("to"), id = s("id").replace("#", "");
-  const page = Math.max(1, Number(s("page")) || 1);
+  const page = pageNum(s("page"));
   const where = ["1=1"]; const args: unknown[] = [];
-  if (id) { where.push("o.id = ?"); args.push(Number(id)); }
+  if (id) { where.push("o.id = ?"); args.push(pgInt(id)); }
   if (status) { where.push("o.status = ?"); args.push(status); }
-  if (plan) { where.push("o.plan_id = ?"); args.push(Number(plan)); }
+  if (plan) { where.push("o.plan_id = ?"); args.push(pgInt(plan)); }
   if (phone) { where.push("u.phone LIKE ?"); args.push(`%${phone}%`); }
   if (from) { where.push("substr(o.created_at,1,10) >= ?"); args.push(from); }
   if (to) { where.push("substr(o.created_at,1,10) <= ?"); args.push(to); }
   const base = `FROM orders o JOIN users u ON u.id = o.user_id JOIN plans p ON p.id = o.plan_id LEFT JOIN coupons c ON c.id = o.coupon_id LEFT JOIN invoices i ON i.order_id = o.id WHERE ${where.join(" AND ")}`;
-  const sum = db.prepare(`SELECT COUNT(*) n, SUM(CASE WHEN o.status='paid' THEN o.total_paise END) paid, SUM(CASE WHEN o.status='refunded' THEN o.total_paise END) refunded, SUM(CASE WHEN o.status='paid' THEN o.gst_paise END) gst ${base}`).get(...args) as { n: number; paid: number | null; refunded: number | null; gst: number | null };
-  const rows = db.prepare(`SELECT o.*, u.name, u.phone, p.name plan, p.audience, c.code coupon, i.id invoice_id, i.number invoice_no ${base} ORDER BY o.id DESC LIMIT ${PER} OFFSET ${(page - 1) * PER}`).all(...args) as Row[];
-  const plans = db.prepare("SELECT id, name FROM plans ORDER BY sort").all() as { id: number; name: string }[];
+  const sum = await db.prepare(`SELECT COUNT(*) n, SUM(CASE WHEN o.status='paid' THEN o.total_paise END) paid, SUM(CASE WHEN o.status='refunded' THEN o.total_paise END) refunded, SUM(CASE WHEN o.status='paid' THEN o.gst_paise END) gst ${base}`).get(...args) as { n: number; paid: number | null; refunded: number | null; gst: number | null };
+  const rows = await db.prepare(`SELECT o.*, u.name, u.phone, p.name plan, p.audience, c.code coupon, i.id invoice_id, i.number invoice_no ${base} ORDER BY o.id DESC LIMIT ${PER} OFFSET ${(page - 1) * PER}`).all(...args) as Row[];
+  const plans = await db.prepare("SELECT id, name FROM plans ORDER BY sort").all() as { id: number; name: string }[];
   const params = { status, plan, phone, from, to, id };
 
   return (

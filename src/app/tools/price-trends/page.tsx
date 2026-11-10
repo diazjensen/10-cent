@@ -15,9 +15,9 @@ export const metadata: Metadata = {
 
 export default async function PriceTrends({ searchParams }: PageProps<"/tools/price-trends">) {
   const sp = await searchParams;
-  const cities = getCities();
-  const city = getCity(typeof sp.city === "string" ? sp.city : "") ?? getCity(cities[0].slug)!;
-  const stats = localityStats(city.id);
+  const cities = await getCities();
+  const city = await getCity(typeof sp.city === "string" ? sp.city : "") ?? (await getCity(cities[0].slug))!;
+  const stats = await localityStats(city.id);
   const sort = typeof sp.sort === "string" ? sp.sort : "name";
   const sorted = [...stats].sort((a, b) =>
     sort === "psf" ? (b.psf ?? 0) - (a.psf ?? 0)
@@ -25,9 +25,9 @@ export default async function PriceTrends({ searchParams }: PageProps<"/tools/pr
     : sort === "rent" ? (b.rent ?? 0) - (a.rent ?? 0)
     : a.name.localeCompare(b.name));
   const locId = Number(sp.loc) || 0;
-  const loc = locId ? getLocalityById(locId) : undefined;
-  const selected = loc && loc.city_id === city.id ? loc : getLocalityById(sorted.find((s) => s.trending)?.id ?? sorted[0]?.id ?? 0);
-  const trend = selected ? priceTrend(selected.id) : [];
+  const loc = locId ? await getLocalityById(locId) : undefined;
+  const selected = loc && loc.city_id === city.id ? loc : await getLocalityById(sorted.find((s) => s.trending)?.id ?? sorted[0]?.id ?? 0);
+  const trend = selected ? await priceTrend(selected.id) : [];
   const selStat = stats.find((s) => s.id === selected?.id);
   const cityAvg = stats.filter((s) => s.psf).reduce((a, s) => a + (s.psf ?? 0), 0) / Math.max(1, stats.filter((s) => s.psf).length);
   const q = (o: Record<string, string | number>) => `/tools/price-trends?${new URLSearchParams({ city: city.slug, sort, ...(selected ? { loc: String(selected.id) } : {}), ...Object.fromEntries(Object.entries(o).map(([k, v]) => [k, String(v)])) })}`;

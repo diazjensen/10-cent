@@ -13,7 +13,7 @@ export const metadata: Metadata = { title: "Static pages" };
 
 export default async function StaticPages() {
   await requireAdmin("cms");
-  const rows = db.prepare("SELECT slug, title, updated_at, length(body) len FROM static_pages ORDER BY slug").all() as { slug: string; title: string; updated_at: string; len: number }[];
+  const rows = await db.prepare("SELECT slug, title, updated_at, length(body) len FROM static_pages ORDER BY slug").all() as { slug: string; title: string; updated_at: string; len: number }[];
   return (
     <div>
       <AdminHeader eyebrow="AD7 · Content" title="Articles & pages" sub="About, terms, privacy, posting policy and other fixed pages. Same simple markdown as articles." />

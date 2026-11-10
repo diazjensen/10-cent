@@ -17,9 +17,9 @@ export default async function ProjectsDash({ searchParams }: PageProps<"/dashboa
   const { subject } = await dashboardContext("/dashboard/projects");
   if (subject.role !== "builder" && subject.role !== "admin") redirect("/dashboard");
   const created = Number(sp.created) || null;
-  const plan = activePlan(subject.id);
-  const rows = db.prepare(
-    `SELECT p.*, lo.name locality, c.name city,
+  const plan = await activePlan(subject.id);
+  const rows = await db.prepare(
+      `SELECT p.*, lo.name locality, c.name city,
        (SELECT url FROM project_media m WHERE m.project_id = p.id AND m.kind = 'photo' ORDER BY sort LIMIT 1) cover,
        (SELECT COUNT(*) FROM leads WHERE project_id = p.id) leads,
        (SELECT COUNT(*) FROM leads WHERE project_id = p.id AND status = 'new') new_leads,
@@ -27,7 +27,7 @@ export default async function ProjectsDash({ searchParams }: PageProps<"/dashboa
        (SELECT COUNT(*) FROM project_unit_types WHERE project_id = p.id) unit_types
      FROM projects p JOIN cities c ON c.id = p.city_id LEFT JOIN localities lo ON lo.id = p.locality_id
      WHERE p.builder_id = ? ORDER BY p.created_at DESC`
-  ).all(subject.id) as Array<{ id: number; name: string; slug: string; status: string; approved: number; featured: number; price_min: number | null; price_max: number | null; possession_date: string | null; rera_id: string | null; locality: string | null; city: string; cover: string | null; leads: number; new_leads: number; towers: number; unit_types: number; total_units: number | null }>;
+    ).all(subject.id) as Array<{ id: number; name: string; slug: string; status: string; approved: number; featured: number; price_min: number | null; price_max: number | null; possession_date: string | null; rera_id: string | null; locality: string | null; city: string; cover: string | null; leads: number; new_leads: number; towers: number; unit_types: number; total_units: number | null }>;
 
   return (
     <div>

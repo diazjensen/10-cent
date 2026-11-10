@@ -21,10 +21,10 @@ export async function GET(req: Request) {
   const info = (await (await fetch("https://openidconnect.googleapis.com/v1/userinfo", { headers: { Authorization: `Bearer ${tok.access_token}` } })).json()) as { email?: string; email_verified?: boolean; name?: string };
   if (!info.email || !info.email_verified) return NextResponse.redirect(new URL("/login?error=google", url));
   const email = info.email.toLowerCase();
-  let u = db.prepare("SELECT id, blocked FROM users WHERE email = ? AND deleted_at IS NULL").get(email) as { id: number; blocked: number } | undefined;
+  let u = await db.prepare("SELECT id, blocked FROM users WHERE email = ? AND deleted_at IS NULL").get(email) as { id: number; blocked: number } | undefined;
   if (!u) {
-    const r = db.prepare("INSERT INTO users (email, name, role) VALUES (?,?, 'seeker')").run(email, info.name ?? null);
-    db.prepare("INSERT OR IGNORE INTO notification_prefs (user_id) VALUES (?)").run(r.lastInsertRowid);
+    const r = await db.prepare("INSERT INTO users (email, name, role) VALUES (?,?, 'seeker')").run(email, info.name ?? null);
+    await db.prepare("INSERT OR IGNORE INTO notification_prefs (user_id) VALUES (?)").run(r.lastInsertRowid);
     u = { id: Number(r.lastInsertRowid), blocked: 0 };
   }
   if (u.blocked) return NextResponse.redirect(new URL("/login?error=blocked", url));

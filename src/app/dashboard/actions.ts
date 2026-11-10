@@ -14,8 +14,8 @@ import { validateGstin } from "@/lib/supply/billing";
 
 type L = { id: number; user_id: number; status: string; expires_at: string | null; published_at: string | null; verified: number; verification_requested_at: string | null; title: string };
 
-const wasApproved = (id: number, publishedAt: string | null) =>
-  !!publishedAt || !!db.prepare("SELECT 1 FROM moderation_logs WHERE listing_id = ? AND action = 'approved' LIMIT 1").get(id);
+const wasApproved = async (id: number, publishedAt: string | null) =>
+  !!publishedAt || !!await db.prepare("SELECT 1 FROM moderation_logs WHERE listing_id = ? AND action = 'approved' LIMIT 1").get(id);
 
 export type ListingOp = "renew" | "pause" | "unpause" | "sold" | "rented" | "delete" | "verify";
 
@@ -23,8 +23,8 @@ export type ListingOp = "renew" | "pause" | "unpause" | "sold" | "rented" | "del
 export async function listingAction(id: number, op: ListingOp): Promise<{ ok: boolean; message: string }> {
   const user = await getUser();
   if (!user) return { ok: false, message: "Log in again to continue." };
-  if (!ownsListing(user, id)) return { ok: false, message: "You can't change this listing." };
-  const l = db.prepare("SELECT id, user_id, status, expires_at, published_at, verified, verification_requested_at, title FROM listings WHERE id = ?").get(id) as L;
+  if (!await ownsListing(user, id)) return { ok: false, message: "You can't change this listing." };
+  const l = await db.prepare("SELECT id, user_id, status, expires_at, published_at, verified, verification_requested_at, title FROM listings WHERE id = ?").get(id) as L;
   const now = nowIso();
   const log = (action: string, reason?: string) => db.prepare("INSERT INTO moderation_logs (listing_id, actor_id, action, reason) VALUES (?,?,?,?)").run(id, user.id, action, reason ?? null);
   let message = "";
@@ -35,52 +35,52 @@ export async function listingAction(id: number, op: ListingOp): Promise<{ ok: bo
       if (!(l.status === "expired" || (l.status === "live" && soon))) return { ok: false, message: "Only expired listings or listings expiring within 7 days can be renewed." };
       const base = l.expires_at && new Date(l.expires_at) > new Date() ? new Date(l.expires_at) : new Date();
       const expires = addDays(LISTING_VALIDITY_DAYS, base);
-      const plan = activePlan(l.user_id);
-      db.prepare("UPDATE listings SET boost = ?, premium = ? WHERE id = ?").run(plan?.boost ?? 0, (plan?.boost ?? 0) >= 2 ? 1 : 0, id);
-      if (l.status === "live" || wasApproved(id, l.published_at)) {
-        db.prepare("UPDATE listings SET status = 'live', expires_at = ?, updated_at = ? WHERE id = ?").run(expires, now, id);
+      const plan = await activePlan(l.user_id);
+      await db.prepare("UPDATE listings SET boost = ?, premium = ? WHERE id = ?").run(plan?.boost ?? 0, (plan?.boost ?? 0) >= 2 ? 1 : 0, id);
+      if (l.status === "live" || await wasApproved(id, l.published_at)) {
+        await db.prepare("UPDATE listings SET status = 'live', expires_at = ?, updated_at = ? WHERE id = ?").run(expires, now, id);
         message = `Renewed until ${new Date(expires).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" })}.`;
       } else {
-        db.prepare("UPDATE listings SET status = 'pending', expires_at = ?, updated_at = ? WHERE id = ?").run(expires, now, id);
+        await db.prepare("UPDATE listings SET status = 'pending', expires_at = ?, updated_at = ? WHERE id = ?").run(expires, now, id);
         message = "Renewed and sent for review, since it was never approved before.";
       }
-      log("renewed", `Renewed for ${LISTING_VALIDITY_DAYS} days`);
+      await log("renewed", `Renewed for ${LISTING_VALIDITY_DAYS} days`);
       break;
     }
     case "pause":
       if (l.status !== "live") return { ok: false, message: "Only live listings can be paused." };
-      db.prepare("UPDATE listings SET status = 'paused', updated_at = ? WHERE id = ?").run(now, id);
-      log("paused", "Paused by poster");
+      await db.prepare("UPDATE listings SET status = 'paused', updated_at = ? WHERE id = ?").run(now, id);
+      await log("paused", "Paused by poster");
       message = "Paused. It's hidden from search until you unpause it.";
       break;
     case "unpause": {
       if (l.status !== "paused") return { ok: false, message: "This listing isn't paused." };
       const expired = l.expires_at && new Date(l.expires_at) < new Date();
-      const next = expired ? "expired" : wasApproved(id, l.published_at) ? "live" : "pending";
-      db.prepare("UPDATE listings SET status = ?, updated_at = ? WHERE id = ?").run(next, now, id);
-      log("unpaused", `Unpaused to ${next}`);
+      const next = expired ? "expired" : await wasApproved(id, l.published_at) ? "live" : "pending";
+      await db.prepare("UPDATE listings SET status = ?, updated_at = ? WHERE id = ?").run(next, now, id);
+      await log("unpaused", `Unpaused to ${next}`);
       message = next === "live" ? "Live again." : next === "expired" ? "It expired while paused. Renew it to go live." : "Sent for review.";
       break;
     }
     case "sold":
     case "rented":
       if (!["live", "paused", "expired", "pending"].includes(l.status)) return { ok: false, message: "This listing is already closed." };
-      db.prepare("UPDATE listings SET status = ?, updated_at = ? WHERE id = ?").run(op, now, id);
-      log(op, `Marked ${op} by poster`);
+      await db.prepare("UPDATE listings SET status = ?, updated_at = ? WHERE id = ?").run(op, now, id);
+      await log(op, `Marked ${op} by poster`);
       message = `Marked as ${op}. Congratulations!`;
       break;
     case "delete":
-      db.prepare("DELETE FROM listings WHERE id = ?").run(id);
-      audit(user.id, "listing.delete", "listing", id, { title: l.title, status: l.status });
+      await db.prepare("DELETE FROM listings WHERE id = ?").run(id);
+      await audit(user.id, "listing.delete", "listing", id, { title: l.title, status: l.status });
       message = "Listing deleted.";
       break;
     case "verify":
       if (l.verified) return { ok: false, message: "This listing is already verified." };
       if (l.verification_requested_at) return { ok: false, message: "Verification is already requested." };
       if (!["live", "pending", "paused"].includes(l.status)) return { ok: false, message: "Only active listings can be verified." };
-      db.prepare("UPDATE listings SET verification_requested_at = ? WHERE id = ?").run(now, id);
-      log("verification_requested", "Physical verification requested by poster");
-      notify(l.user_id, { kind: "system", title: "Verification visit requested", body: `Our field team will call you within 2 working days to schedule a visit for listing #${id}.`, link: "/dashboard/listings" }, ["sms"]);
+      await db.prepare("UPDATE listings SET verification_requested_at = ? WHERE id = ?").run(now, id);
+      await log("verification_requested", "Physical verification requested by poster");
+      await notify(l.user_id, { kind: "system", title: "Verification visit requested", body: `Our field team will call you within 2 working days to schedule a visit for listing #${id}.`, link: "/dashboard/listings" }, ["sms"]);
       message = "Requested. Our field team will call you within 2 working days.";
       break;
   }
@@ -93,9 +93,9 @@ export async function leadStatusAction(leadId: number, status: "new" | "contacte
   const user = await getUser();
   if (!user) return { ok: false };
   if (!["new", "contacted", "spam", "closed"].includes(status)) return { ok: false };
-  const lead = db.prepare("SELECT poster_id FROM leads WHERE id = ?").get(leadId) as { poster_id: number } | undefined;
+  const lead = await db.prepare("SELECT poster_id FROM leads WHERE id = ?").get(leadId) as { poster_id: number } | undefined;
   if (!lead || (lead.poster_id !== user.id && user.role !== "admin")) return { ok: false };
-  db.prepare("UPDATE leads SET status = ? WHERE id = ?").run(status, leadId);
+  await db.prepare("UPDATE leads SET status = ? WHERE id = ?").run(status, leadId);
   revalidatePath("/dashboard", "layout");
   return { ok: true };
 }
@@ -104,25 +104,25 @@ export async function leadStatusAction(leadId: number, status: "new" | "contacte
 export async function visitAction(visitId: number, op: "confirm" | "cancel" | "done") {
   const user = await getUser();
   if (!user) return { ok: false, message: "Log in again." };
-  const v = db.prepare(
-    `SELECT v.*, COALESCE(l.user_id, p.builder_id) AS owner_id, COALESCE(l.title, p.name) AS what
+  const v = await db.prepare(
+      `SELECT v.*, COALESCE(l.user_id, p.builder_id) AS owner_id, COALESCE(l.title, p.name) AS what
      FROM visits v LEFT JOIN listings l ON l.id = v.listing_id LEFT JOIN projects p ON p.id = v.project_id WHERE v.id = ?`
-  ).get(visitId) as { id: number; seeker_id: number | null; owner_id: number | null; scheduled_at: string; status: string; what: string; listing_id: number | null; project_id: number | null } | undefined;
+    ).get(visitId) as { id: number; seeker_id: number | null; owner_id: number | null; scheduled_at: string; status: string; what: string; listing_id: number | null; project_id: number | null } | undefined;
   if (!v || (v.owner_id !== user.id && user.role !== "admin")) return { ok: false, message: "Visit not found." };
   const next = op === "confirm" ? "confirmed" : op === "cancel" ? "cancelled" : "done";
-  db.prepare("UPDATE visits SET status = ? WHERE id = ?").run(next, visitId);
+  await db.prepare("UPDATE visits SET status = ? WHERE id = ?").run(next, visitId);
   const when = new Date(v.scheduled_at).toLocaleString("en-IN", { weekday: "short", day: "numeric", month: "short", hour: "numeric", minute: "2-digit" });
   if (v.seeker_id && op !== "done") {
-    notify(
-      v.seeker_id,
-      {
-        kind: "visit",
-        title: op === "confirm" ? `Site visit confirmed for ${when}` : "Site visit cancelled",
-        body: op === "confirm" ? `${user.name || "The poster"} confirmed your visit to ${v.what}.` : `${user.name || "The poster"} can't make the visit to ${v.what} on ${when}. You can request another time.`,
-        link: v.listing_id ? `/property/${v.listing_id}` : "/account/contacted",
-      },
-      ["sms", "whatsapp"]
-    );
+    await notify(
+            v.seeker_id,
+            {
+              kind: "visit",
+              title: op === "confirm" ? `Site visit confirmed for ${when}` : "Site visit cancelled",
+              body: op === "confirm" ? `${user.name || "The poster"} confirmed your visit to ${v.what}.` : `${user.name || "The poster"} can't make the visit to ${v.what} on ${when}. You can request another time.`,
+              link: v.listing_id ? `/property/${v.listing_id}` : "/account/contacted",
+            },
+            ["sms", "whatsapp"]
+          );
   }
   revalidatePath("/dashboard/responses");
   return { ok: true, message: op === "confirm" ? "Visit confirmed. The seeker has been notified." : op === "cancel" ? "Visit cancelled. The seeker has been notified." : "Marked as done." };
@@ -164,18 +164,18 @@ export async function saveProfileAction(_prev: FormState, fd: FormData): Promise
   if ((user.role === "agent" || user.role === "builder") && !d.company_name) errors.company_name = user.role === "agent" ? "Enter your agency name" : "Enter the company name";
   if (user.role === "agent" && !d.rera_number) errors.rera_number = "Agents must show their RERA registration";
   if (d.email) {
-    const clash = db.prepare("SELECT id FROM users WHERE email = ? AND id <> ?").get(d.email.toLowerCase(), user.id);
+    const clash = await db.prepare("SELECT id FROM users WHERE email = ? AND id <> ?").get(d.email.toLowerCase(), user.id);
     if (clash) errors.email = "This email is used by another account";
   }
   if (Object.keys(errors).length) return { ok: false, errors, values: raw };
-  db.prepare("UPDATE users SET name = ?, email = ? WHERE id = ?").run(d.name, d.email ? d.email.toLowerCase() : user.email, user.id);
-  db.prepare(
-    `INSERT INTO profiles (user_id, company_name, rera_number, experience_years, established_year, about, website, gstin, city_id)
+  await db.prepare("UPDATE users SET name = ?, email = ? WHERE id = ?").run(d.name, d.email ? d.email.toLowerCase() : user.email, user.id);
+  await db.prepare(
+        `INSERT INTO profiles (user_id, company_name, rera_number, experience_years, established_year, about, website, gstin, city_id)
      VALUES (?,?,?,?,?,?,?,?,?)
      ON CONFLICT(user_id) DO UPDATE SET company_name = excluded.company_name, rera_number = excluded.rera_number, experience_years = excluded.experience_years,
        established_year = excluded.established_year, about = excluded.about, website = excluded.website, gstin = excluded.gstin, city_id = excluded.city_id`
-  ).run(user.id, d.company_name || null, d.rera_number || null, d.experience_years === "" ? null : d.experience_years, d.established_year === "" ? null : d.established_year, d.about || null, d.website || null, d.gstin || null, d.city_id === "" ? null : d.city_id);
-  audit(user.id, "profile.update", "user", user.id);
+      ).run(user.id, d.company_name || null, d.rera_number || null, d.experience_years === "" ? null : d.experience_years, d.established_year === "" ? null : d.established_year, d.about || null, d.website || null, d.gstin || null, d.city_id === "" ? null : d.city_id);
+  await audit(user.id, "profile.update", "user", user.id);
   revalidatePath("/dashboard", "layout");
   return { ok: true, message: "Profile saved." };
 }
@@ -185,10 +185,10 @@ export async function savePrefsAction(_prev: FormState, fd: FormData): Promise<F
   const user = await getUser();
   if (!user) return { ok: false, message: "Log in again." };
   const on = (k: string) => (fd.get(k) === "on" ? 1 : 0);
-  db.prepare(
-    `INSERT INTO notification_prefs (user_id, email, sms, whatsapp, push) VALUES (?,?,?,?,?)
+  await db.prepare(
+        `INSERT INTO notification_prefs (user_id, email, sms, whatsapp, push) VALUES (?,?,?,?,?)
      ON CONFLICT(user_id) DO UPDATE SET email = excluded.email, sms = excluded.sms, whatsapp = excluded.whatsapp, push = excluded.push`
-  ).run(user.id, on("email"), on("sms"), on("whatsapp"), on("push"));
+      ).run(user.id, on("email"), on("sms"), on("whatsapp"), on("push"));
   revalidatePath("/dashboard/settings");
   return { ok: true, message: "Alert preferences saved." };
 }
@@ -199,14 +199,14 @@ export async function saveWebhookAction(_prev: FormState, fd: FormData): Promise
   if (!user || !["agent", "builder", "admin"].includes(user.role)) return { ok: false, message: "Only agents and builders can add a webhook." };
   const url = String(fd.get("url") ?? "").trim();
   if (!isValidWebhookUrl(url)) return { ok: false, errors: { url: "Enter a full http(s) URL, e.g. https://crm.example.com/hooks/10cent" } };
-  const existing = getWebhook(user.id);
+  const existing = await getWebhook(user.id);
   const active = fd.get("active") === "on" ? 1 : 0;
   if (existing) {
-    db.prepare("UPDATE webhooks SET url = ?, active = ? WHERE id = ?").run(url, active, existing.id);
+    await db.prepare("UPDATE webhooks SET url = ?, active = ? WHERE id = ?").run(url, active, existing.id);
   } else {
-    db.prepare("INSERT INTO webhooks (user_id, url, secret, active) VALUES (?,?,?,?)").run(user.id, url, newSecret(), active);
+    await db.prepare("INSERT INTO webhooks (user_id, url, secret, active) VALUES (?,?,?,?)").run(user.id, url, newSecret(), active);
   }
-  audit(user.id, existing ? "webhook.update" : "webhook.create", "webhook", existing?.id ?? null, { url });
+  await audit(user.id, existing ? "webhook.update" : "webhook.create", "webhook", existing?.id ?? null, { url });
   revalidatePath("/dashboard/leads");
   return { ok: true, message: existing ? "Webhook updated." : "Webhook added. Copy the signing secret below into your CRM." };
 }
@@ -214,16 +214,16 @@ export async function saveWebhookAction(_prev: FormState, fd: FormData): Promise
 export async function rotateWebhookSecretAction() {
   const user = await getUser();
   if (!user) return;
-  const h = getWebhook(user.id);
-  if (h) db.prepare("UPDATE webhooks SET secret = ? WHERE id = ?").run(newSecret(), h.id);
+  const h = await getWebhook(user.id);
+  if (h) await db.prepare("UPDATE webhooks SET secret = ? WHERE id = ?").run(newSecret(), h.id);
   revalidatePath("/dashboard/leads");
 }
 
 export async function deleteWebhookAction() {
   const user = await getUser();
   if (!user) return;
-  db.prepare("DELETE FROM webhooks WHERE user_id = ?").run(user.id);
-  audit(user.id, "webhook.delete", "webhook", null);
+  await db.prepare("DELETE FROM webhooks WHERE user_id = ?").run(user.id);
+  await audit(user.id, "webhook.delete", "webhook", null);
   revalidatePath("/dashboard/leads");
 }
 
@@ -241,10 +241,10 @@ export async function viewAsAction(fd: FormData) {
   if (!user || user.role !== "admin" || !["super", "support", "sales", "moderator"].includes(user.admin_role ?? "")) return;
   const q = String(fd.get("who") ?? "").trim();
   const phone = normalizePhone(q);
-  const target = db.prepare("SELECT id FROM users WHERE (id = ? OR phone = ? OR email = ?) AND role IN ('owner','agent','builder')").get(Number(q) || -1, phone ?? "", q.toLowerCase()) as { id: number } | undefined;
+  const target = await db.prepare("SELECT id FROM users WHERE (id = ? OR phone = ? OR email = ?) AND role IN ('owner','agent','builder')").get(Number(q) || -1, phone ?? "", q.toLowerCase()) as { id: number } | undefined;
   if (!target) redirect("/dashboard?viewas=notfound");
   (await cookies()).set(DASH_AS_COOKIE, String(target.id), { httpOnly: true, sameSite: "lax", path: "/", maxAge: 3600 });
-  audit(user.id, "dashboard.view_as", "user", target.id);
+  await audit(user.id, "dashboard.view_as", "user", target.id);
   redirect("/dashboard");
 }
 

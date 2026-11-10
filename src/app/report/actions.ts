@@ -20,7 +20,7 @@ const schema = z.object({
 
 /** Extracts a listing id from "1234", "#1234" or a 10cent property URL. */
 function listingIdFrom(s: string): number | null {
-  const m = s.match(/\/property\/(\d+)/) || s.match(/^#?(\d{1,9})$/);
+  const m = s.match(/\/property\/(\d{1,9})(?!\d)/) || s.match(/^#?(\d{1,9})$/);
   return m ? Number(m[1]) : null;
 }
 
@@ -55,24 +55,24 @@ async function reportFraudInner(_prev: FraudState, form: FormData): Promise<Frau
   if (d.target === "listing") {
     const id = listingIdFrom(d.listing ?? "");
     if (!id) return { fieldErrors: { listing: "Paste the property link or its ID (the number in /property/1234)" } };
-    const l = db.prepare("SELECT id, user_id FROM listings WHERE id = ?").get(id) as { id: number; user_id: number } | undefined;
+    const l = await db.prepare("SELECT id, user_id FROM listings WHERE id = ?").get(id) as { id: number; user_id: number } | undefined;
     if (!l) return { fieldErrors: { listing: `We couldn't find listing ${id}. Check the link and try again.` } };
     listingId = l.id;
     reportedUserId = l.user_id;
   } else {
     const phone = normalizePhone(d.phone ?? "");
     if (!phone) return { fieldErrors: { phone: "Enter the 10-digit mobile number that contacted you" } };
-    const u = db.prepare("SELECT id FROM users WHERE phone = ?").get(phone) as { id: number } | undefined;
+    const u = await db.prepare("SELECT id FROM users WHERE phone = ?").get(phone) as { id: number } | undefined;
     reportedUserId = u?.id ?? null;
     targetNote = `Reported phone: ${phone}${u ? "" : " (not a registered 10cent user)"}`;
   }
   if (user && reportedUserId === user.id) return { error: "You can't report your own account or listing." };
 
-  const rl = rateLimit(`fraud:${user ? `u:${user.id}` : `ip:${ip}`}`, user ? 10 : 5, 3600);
+  const rl = await rateLimit(`fraud:${user ? `u:${user.id}` : `ip:${ip}`}`, user ? 10 : 5, 3600);
   if (!rl.ok) return { error: "You've sent several reports in the last hour. Please try again later." };
 
   const details = [targetNote, d.details, contactNote].filter(Boolean).join("\n\n");
-  const info = db.prepare("INSERT INTO reports (listing_id, reported_user_id, reporter_id, reason, details) VALUES (?,?,?,?,?)")
-    .run(listingId, reportedUserId, user?.id ?? null, d.reason, details);
+  const info = await db.prepare("INSERT INTO reports (listing_id, reported_user_id, reporter_id, reason, details) VALUES (?,?,?,?,?)")
+      .run(listingId, reportedUserId, user?.id ?? null, d.reason, details);
   return { ok: true, ref: Number(info.lastInsertRowid) };
 }

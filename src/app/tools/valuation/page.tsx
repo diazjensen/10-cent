@@ -19,8 +19,8 @@ const n = (v: unknown, d: number) => { const x = Number(v); return Number.isFini
 
 export default async function ValuationPage({ searchParams }: PageProps<"/tools/valuation">) {
   const sp = await searchParams;
-  const cities = getCities();
-  const locs = db.prepare(`SELECT lo.id, lo.name, c.slug city,
+  const cities = await getCities();
+  const locs = await db.prepare(`SELECT lo.id, lo.name, c.slug city,
       (SELECT avg_price_sqft FROM price_trends t WHERE t.locality_id = lo.id ORDER BY month DESC LIMIT 1) psf
     FROM localities lo JOIN cities c ON c.id = lo.city_id ORDER BY lo.name`).all() as Array<{ id: number; name: string; city: string; psf: number | null }>;
   const city = cities.find((c) => c.slug === sp.city)?.slug ?? cities[0].slug;
@@ -29,14 +29,14 @@ export default async function ValuationPage({ searchParams }: PageProps<"/tools/
   const furn = (["unfurnished", "semi", "furnished"] as const).find((f) => f === sp.furn) ?? "semi";
   const p: ValuationParams = { city, loc: loc.id, bhk: Math.min(5, Math.max(1, n(sp.bhk, 2))), area: Math.max(0, n(sp.area, 1200)), age: Math.max(0, n(sp.age, 5)), floor: Math.max(0, n(sp.floor, 4)), tf: Math.max(0, n(sp.tf, 12)), furn };
 
-  const comps = p.area > 0 ? db.prepare(`SELECT ${CARD_SELECT} ${CARD_FROM}
+  const comps = p.area > 0 ? await db.prepare(`SELECT ${CARD_SELECT} ${CARD_FROM}
       WHERE l.status = 'live' AND l.transaction_type = 'sell' AND l.locality_id = ? AND l.property_type IN ('apartment','house','villa')
         AND ${p.bhk >= 5 ? "l.bhk >= 5" : "l.bhk = ?"}
         AND COALESCE(l.super_area, l.builtup_area, l.carpet_area) BETWEEN ? AND ?
       ORDER BY ABS(COALESCE(l.super_area, l.builtup_area, l.carpet_area) - ?) LIMIT 8`)
-      .all(...[loc.id, ...(p.bhk >= 5 ? [] : [p.bhk]), p.area * 0.65, p.area * 1.35, p.area]) as Card[] : [];
+        .all(...[loc.id, ...(p.bhk >= 5 ? [] : [p.bhk]), p.area * 0.65, p.area * 1.35, p.area]) as Card[] : [];
   const user = await getUser();
-  const saved = new Set(user ? (db.prepare("SELECT listing_id FROM shortlists WHERE user_id = ?").all(user.id) as { listing_id: number }[]).map((r) => r.listing_id) : []);
+  const saved = new Set(user ? (await db.prepare("SELECT listing_id FROM shortlists WHERE user_id = ?").all(user.id) as { listing_id: number }[]).map((r) => r.listing_id) : []);
   const compPsf = median(comps.filter((c) => c.area).map((c) => c.price / (c.area as number)));
 
   return (

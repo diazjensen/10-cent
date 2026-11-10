@@ -12,8 +12,8 @@ export type ProjectFull = {
   builder_exp: number | null; builder_logo: string | null; builder_rating: number | null; builder_phone: string | null;
 };
 
-export function getProjectBySlug(slug: string) {
-  return db.prepare(`
+export async function getProjectBySlug(slug: string) {
+  return await db.prepare(`
     SELECT p.*, c.name city_name, c.slug city_slug, c.state city_state, lo.name loc_name, lo.slug loc_slug,
       u.name builder_name, u.phone builder_phone, pr.company_name builder_company, pr.about builder_about, pr.established_year builder_est,
       pr.experience_years builder_exp, pr.logo_url builder_logo, pr.rating builder_rating
@@ -22,11 +22,11 @@ export function getProjectBySlug(slug: string) {
     WHERE p.slug = ?`).get(slug) as ProjectFull | undefined;
 }
 
-export function projectParts(id: number) {
+export async function projectParts(id: number) {
   return {
-    units: db.prepare("SELECT * FROM project_unit_types WHERE project_id = ? ORDER BY bhk, price").all(id) as Array<{ id: number; label: string; bhk: number | null; carpet_area: number | null; super_area: number | null; price: number | null; floor_plan_url: string | null; available_units: number | null }>,
-    towers: db.prepare("SELECT * FROM project_towers WHERE project_id = ? ORDER BY name").all(id) as Array<{ id: number; name: string; floors: number | null; units: number | null; completion_pct: number | null }>,
-    media: db.prepare("SELECT * FROM project_media WHERE project_id = ? ORDER BY sort, id").all(id) as Array<{ id: number; kind: string; url: string }>,
+    units: await db.prepare("SELECT * FROM project_unit_types WHERE project_id = ? ORDER BY bhk, price").all(id) as Array<{ id: number; label: string; bhk: number | null; carpet_area: number | null; super_area: number | null; price: number | null; floor_plan_url: string | null; available_units: number | null }>,
+    towers: await db.prepare("SELECT * FROM project_towers WHERE project_id = ? ORDER BY name").all(id) as Array<{ id: number; name: string; floors: number | null; units: number | null; completion_pct: number | null }>,
+    media: await db.prepare("SELECT * FROM project_media WHERE project_id = ? ORDER BY sort, id").all(id) as Array<{ id: number; kind: string; url: string }>,
   };
 }
 

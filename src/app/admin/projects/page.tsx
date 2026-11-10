@@ -36,7 +36,7 @@ export default async function ProjectsAdmin({ searchParams }: PageProps<"/admin/
   if (state === "unapproved") where.push("p.approved = 0");
   if (state === "featured") where.push("p.featured = 1");
   if (state === "sponsored") where.push("p.sponsored = 1");
-  const rows = db.prepare(`SELECT p.*, c.name city, lo.name locality, u.name builder, pr.company_name company,
+  const rows = await db.prepare(`SELECT p.*, c.name city, lo.name locality, u.name builder, pr.company_name company,
       (SELECT COUNT(*) FROM listings l WHERE l.project_id = p.id AND l.status = 'live') listings,
       (SELECT COUNT(*) FROM leads ld WHERE ld.project_id = p.id) leads,
       (SELECT COUNT(*) FROM banners b WHERE b.project_id = p.id AND b.active = 1) banners
@@ -50,7 +50,7 @@ export default async function ProjectsAdmin({ searchParams }: PageProps<"/admin/
         <FInput label="Project, builder or RERA" name="q" defaultValue={q} className="w-56" />
         <FSelect label="City" name="city" defaultValue={city}>
           <option value="">All</option>
-          {getCities().map((c) => <option key={c.slug} value={c.slug}>{c.name}</option>)}
+          {(await getCities()).map((c) => <option key={c.slug} value={c.slug}>{c.name}</option>)}
         </FSelect>
         <FSelect label="Show" name="state" defaultValue={state}>
           <option value="">All projects</option>

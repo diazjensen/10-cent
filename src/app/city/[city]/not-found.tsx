@@ -2,8 +2,8 @@ import Link from "next/link";
 import { getCities } from "@/lib/listings";
 import { Container } from "@/components/ui";
 
-export default function CityNotFound() {
-  const cities = getCities();
+export default async function CityNotFound() {
+  const cities = await getCities();
   return (
     <Container className="py-20 max-w-xl text-center">
       <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-muted">404</p>

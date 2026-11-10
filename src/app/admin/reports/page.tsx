@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { requireAdmin } from "@/lib/auth";
+import { pgInt, pageNum } from "@/lib/admin/guard";
 import { db } from "@/lib/db";
 import { formatPhone, timeAgo, formatDate } from "@/lib/format";
 import { REPORT_REASONS, LISTING_STATUS_LABEL } from "@/lib/constants";
@@ -27,13 +28,13 @@ export default async function ReportsPage({ searchParams }: PageProps<"/admin/re
   const sp = await searchParams;
   const s = (k: string) => (typeof sp[k] === "string" ? (sp[k] as string).trim() : "");
   const status = s("status") || (s("id") ? "" : "open"), reason = s("reason"), id = s("id").replace("#", "");
-  const page = Math.max(1, Number(s("page")) || 1);
+  const page = pageNum(s("page"));
   const where = ["1=1"]; const args: unknown[] = [];
-  if (id) { where.push("r.id = ?"); args.push(Number(id)); }
+  if (id) { where.push("r.id = ?"); args.push(pgInt(id)); }
   if (status && status !== "all") { where.push("r.status = ?"); args.push(status); }
   if (reason) { where.push("r.reason = ?"); args.push(reason); }
-  const total = (db.prepare(`SELECT COUNT(*) n FROM reports r WHERE ${where.join(" AND ")}`).get(...args) as { n: number }).n;
-  const rows = db.prepare(`
+  const total = (await db.prepare(`SELECT COUNT(*) n FROM reports r WHERE ${where.join(" AND ")}`).get(...args) as { n: number }).n;
+  const rows = await db.prepare(`
     SELECT r.*, l.title l_title, l.status l_status, l.price l_price, l.transaction_type l_tx, c.name l_city,
       ru.name ru_name, ru.phone ru_phone, ru.role ru_role, ru.blocked ru_blocked,
       rp.name rp_name, rp.phone rp_phone, rv.name resolver,
@@ -47,7 +48,7 @@ export default async function ReportsPage({ searchParams }: PageProps<"/admin/re
     WHERE ${where.join(" AND ")}
     ORDER BY (r.status = 'open') DESC, CASE WHEN r.status = 'open' THEN r.created_at END ASC, r.id DESC
     LIMIT ${PER} OFFSET ${(page - 1) * PER}`).all(...args) as Row[];
-  const counts = db.prepare("SELECT status, COUNT(*) n FROM reports GROUP BY status").all() as { status: string; n: number }[];
+  const counts = await db.prepare("SELECT status, COUNT(*) n FROM reports GROUP BY status").all() as { status: string; n: number }[];
   const c = (k: string) => counts.find((x) => x.status === k)?.n ?? 0;
   const params = { status, reason, id };
 

@@ -8,7 +8,7 @@ import type { JobOptions, JobResult } from "./types";
 
 export type { JobResult, JobOptions };
 
-type JobFn = (o: JobOptions) => { summary: string; counts: Record<string, number>; details: string[] };
+type JobFn = (o: JobOptions) => Promise<{ summary: string; counts: Record<string, number>; details: string[] }>;
 
 export const JOBS: Record<string, { title: string; schedule: string; cron: string; describe: string; run: JobFn }> = {
   "expire-listings": {
@@ -42,18 +42,18 @@ export const JOBS: Record<string, { title: string; schedule: string; cron: strin
 };
 
 /** Runs a job, never throws, and records the run in the audit log (actor = the staff member or NULL for cron). */
-export function runJob(name: string, opts: JobOptions & { actorId?: number | null; ip?: string } = {}): JobResult {
+export async function runJob(name: string, opts: JobOptions & { actorId?: number | null; ip?: string } = {}): Promise<JobResult> {
   const job = JOBS[name];
   const startedAt = new Date().toISOString();
   const t0 = Date.now();
   if (!job) return { job: name, ok: false, startedAt, ms: 0, summary: "Unknown job", counts: {}, details: [], error: `Unknown job “${name}”` };
   let result: JobResult;
   try {
-    const r = job.run(opts);
+    const r = await job.run(opts);
     result = { job: name, ok: true, startedAt, ms: Date.now() - t0, summary: r.summary, counts: r.counts, details: r.details.slice(0, 200) };
   } catch (e) {
     result = { job: name, ok: false, startedAt, ms: Date.now() - t0, summary: "Job failed", counts: {}, details: [], error: (e as Error).message };
   }
-  audit(opts.actorId ?? null, `job.${name}`, "job", null, { ...result, details: result.details.slice(0, 20), force: !!opts.force }, opts.ip);
+  await audit(opts.actorId ?? null, `job.${name}`, "job", null, { ...result, details: result.details.slice(0, 20), force: !!opts.force }, opts.ip);
   return result;
 }

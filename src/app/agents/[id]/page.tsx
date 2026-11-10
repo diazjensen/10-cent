@@ -15,15 +15,15 @@ import { Badge, Breadcrumbs, Container, EmptyState, Pagination, Stat } from "@/c
 
 type Agent = { id: number; name: string | null; created_at: string; kyc_status: string; company_name: string | null; about: string | null; experience_years: number | null; rera_number: string | null; website: string | null; city: string | null; state: string | null; city_slug: string | null };
 
-function getAgent(id: number) {
-  return db.prepare(`SELECT u.id, u.name, u.created_at, u.kyc_status, pr.company_name, pr.about, pr.experience_years, pr.rera_number, pr.website, c.name city, c.state, c.slug city_slug
+async function getAgent(id: number) {
+  return await db.prepare(`SELECT u.id, u.name, u.created_at, u.kyc_status, pr.company_name, pr.about, pr.experience_years, pr.rera_number, pr.website, c.name city, c.state, c.slug city_slug
     FROM users u LEFT JOIN profiles pr ON pr.user_id = u.id LEFT JOIN cities c ON c.id = pr.city_id
     WHERE u.id = ? AND u.role = 'agent' AND u.deleted_at IS NULL AND u.blocked = 0`).get(id) as Agent | undefined;
 }
 
 export async function generateMetadata({ params }: PageProps<"/agents/[id]">): Promise<Metadata> {
   const { id } = await params;
-  const a = getAgent(Number(id));
+  const a = await getAgent(Number(id));
   if (!a) return { title: "Agent not found" };
   const name = a.company_name ?? a.name ?? "Agent";
   return { title: `${name}${a.city ? `, ${a.city}` : ""}: RERA agent, listings and reviews`, description: (a.about ?? `${name} on 10cent.`).slice(0, 160), alternates: { canonical: `/agents/${a.id}` } };
@@ -32,19 +32,19 @@ export async function generateMetadata({ params }: PageProps<"/agents/[id]">): P
 export default async function AgentPage({ params, searchParams }: PageProps<"/agents/[id]">) {
   const { id } = await params;
   const sp = await searchParams;
-  const a = getAgent(Number(id));
+  const a = await getAgent(Number(id));
   if (!a) notFound();
   const name = a.company_name ?? a.name ?? "Agent";
   const user = await getUser();
   const path = `/agents/${a.id}`;
   const page = Math.max(1, Number(sp.page) || 1);
-  const listings = searchListings({ poster: String(a.id), sort: "newest", page: String(page) }, { pageSize: 12 });
-  const saved = new Set(user ? (db.prepare("SELECT listing_id FROM shortlists WHERE user_id = ?").all(user.id) as { listing_id: number }[]).map((r) => r.listing_id) : []);
-  const reviews = (db.prepare(`SELECT r.id, r.rating, r.body, r.created_at, r.user_id, u.name FROM reviews r JOIN users u ON u.id = r.user_id WHERE r.agent_id = ? AND r.status = 'published' ORDER BY r.created_at DESC`).all(a.id) as ReviewRow[]).map((r) => ({ ...r, name: shortName(r.name) }));
-  const mine = user ? (db.prepare("SELECT rating, body FROM reviews WHERE user_id = ? AND agent_id = ?").get(user.id, a.id) as { rating: number; body: string } | undefined) : undefined;
+  const listings = await searchListings({ poster: String(a.id), sort: "newest", page: String(page) }, { pageSize: 12 });
+  const saved = new Set(user ? (await db.prepare("SELECT listing_id FROM shortlists WHERE user_id = ?").all(user.id) as { listing_id: number }[]).map((r) => r.listing_id) : []);
+  const reviews = (await db.prepare(`SELECT r.id, r.rating, r.body, r.created_at, r.user_id, u.name FROM reviews r JOIN users u ON u.id = r.user_id WHERE r.agent_id = ? AND r.status = 'published' ORDER BY r.created_at DESC`).all(a.id) as ReviewRow[]).map((r) => ({ ...r, name: shortName(r.name) }));
+  const mine = user ? (await db.prepare("SELECT rating, body FROM reviews WHERE user_id = ? AND agent_id = ?").get(user.id, a.id) as { rating: number; body: string } | undefined) : undefined;
   const avg = reviews.length ? reviews.reduce((s, r) => s + r.rating, 0) / reviews.length : null;
-  const mix = db.prepare("SELECT transaction_type tx, COUNT(*) n FROM listings WHERE user_id = ? AND status = 'live' GROUP BY tx").all(a.id) as Array<{ tx: string; n: number }>;
-  const localities = db.prepare(`SELECT lo.name, COUNT(*) n FROM listings l JOIN localities lo ON lo.id = l.locality_id WHERE l.user_id = ? AND l.status = 'live' GROUP BY lo.id ORDER BY n DESC LIMIT 6`).all(a.id) as Array<{ name: string; n: number }>;
+  const mix = await db.prepare("SELECT transaction_type tx, COUNT(*) n FROM listings WHERE user_id = ? AND status = 'live' GROUP BY tx").all(a.id) as Array<{ tx: string; n: number }>;
+  const localities = await db.prepare(`SELECT lo.name, COUNT(*) n FROM listings l JOIN localities lo ON lo.id = l.locality_id WHERE l.user_id = ? AND l.status = 'live' GROUP BY lo.id ORDER BY n DESC LIMIT 6`).all(a.id) as Array<{ name: string; n: number }>;
   const portal = a.state ? RERA_PORTALS[a.state] : undefined;
 
   return (

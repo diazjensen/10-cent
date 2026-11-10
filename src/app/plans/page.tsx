@@ -21,8 +21,8 @@ const AUDIENCES = [
 
 export default async function PlansPage() {
   const user = await getUser();
-  const plans = db.prepare("SELECT * FROM plans WHERE active = 1 ORDER BY sort").all() as Plan[];
-  const current = user ? activePlan(user.id) : null;
+  const plans = await db.prepare("SELECT * FROM plans WHERE active = 1 ORDER BY sort").all() as Plan[];
+  const current = user ? await activePlan(user.id) : null;
   const mine = user?.role === "agent" ? "agent" : user?.role === "builder" ? "builder" : user ? "owner" : null;
 
   return (

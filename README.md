@@ -2,17 +2,28 @@
 
 A property marketplace for India: buy, rent, PG/co-living, commercial, plots and new projects. Built from the 10cent PRD (Nov 2026).
 
-**Stack:** Next.js 16 (App Router, server actions) · TypeScript · Tailwind v4 · SQLite (better-sqlite3) · Leaflet maps.
+**Stack:** Next.js 16 (App Router, server actions) · TypeScript · Tailwind v4 · PostgreSQL on Supabase (`pg`) · Leaflet maps.
 
 ## Run it
 
 ```bash
 npm install
-npm run seed      # creates data/10cent.db with demo data (wipes it if it exists)
-npm run dev       # http://localhost:3000
+cp .env.example .env.local   # then set DATABASE_URL (Supabase: Connect -> Transaction pooler)
+npm run migrate              # creates the tables from db/schema.sql (safe to re-run)
+npm run seed                 # EMPTIES the tables, then loads demo data
+npm run dev                  # http://localhost:3000
 ```
 
+The Supabase project already has the schema applied (38 tables, Row Level Security on, no public policies: the app talks to the
+database from the server only, so the Supabase anon/public API cannot read or write anything). `npm run seed` only needs to be run once,
+to load the demo data.
+
 Production: `npm run build && npm start` (set `INSECURE_COOKIES=1` if you test `npm start` over plain http).
+
+To test against a local Postgres instead of Supabase, point `DATABASE_URL` at it (e.g. `postgresql://postgres@localhost:5432/tencent`) and run the same commands.
+
+**Data notes:** timestamps are stored as ISO-8601 UTC text and flags as 0/1 integers (kept from the first version so every query behaves the same);
+money is BIGINT rupees (or `*_paise`). `src/lib/pg.ts` is the data layer (`await db.prepare(sql).get/all/run`, `await db.transaction(...)`).
 
 ### Demo logins
 

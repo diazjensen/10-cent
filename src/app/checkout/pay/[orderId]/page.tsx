@@ -17,11 +17,11 @@ export default async function PayPage({ params, searchParams }: PageProps<"/chec
   const id = Number(orderId);
   const user = await getUser();
   if (!user) redirect(`/login?next=/checkout/pay/${orderId}`);
-  const o = db.prepare("SELECT * FROM orders WHERE id = ?").get(id) as OrderRow | undefined;
+  const o = await db.prepare("SELECT * FROM orders WHERE id = ?").get(id) as OrderRow | undefined;
   if (!o || (o.user_id !== user.id && user.role !== "admin")) notFound();
-  const plan = db.prepare("SELECT * FROM plans WHERE id = ?").get(o.plan_id) as Plan;
-  const inv = db.prepare("SELECT id, number FROM invoices WHERE order_id = ?").get(id) as { id: number; number: string } | undefined;
-  const sub = db.prepare("SELECT ends_at FROM subscriptions WHERE order_id = ?").get(id) as { ends_at: string } | undefined;
+  const plan = await db.prepare("SELECT * FROM plans WHERE id = ?").get(o.plan_id) as Plan;
+  const inv = await db.prepare("SELECT id, number FROM invoices WHERE order_id = ?").get(id) as { id: number; number: string } | undefined;
+  const sub = await db.prepare("SELECT ends_at FROM subscriptions WHERE order_id = ?").get(id) as { ends_at: string } | undefined;
   const pay = payOrderAction.bind(null, id, "success");
   const fail = payOrderAction.bind(null, id, "failure");
 

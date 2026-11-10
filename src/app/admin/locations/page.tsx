@@ -56,9 +56,9 @@ function LocalityForm({ cityId, l }: { cityId: number; l?: Loc }) {
 export default async function LocationsPage({ searchParams }: PageProps<"/admin/locations">) {
   await requireAdmin("cms");
   const sp = await searchParams;
-  const cities = db.prepare(`SELECT c.*, (SELECT COUNT(*) FROM localities l WHERE l.city_id = c.id) locs, (SELECT COUNT(*) FROM listings x WHERE x.city_id = c.id AND x.status = 'live') live FROM cities c ORDER BY c.sort, c.name`).all() as City[];
+  const cities = await db.prepare(`SELECT c.*, (SELECT COUNT(*) FROM localities l WHERE l.city_id = c.id) locs, (SELECT COUNT(*) FROM listings x WHERE x.city_id = c.id AND x.status = 'live') live FROM cities c ORDER BY c.sort, c.name`).all() as City[];
   const city = cities.find((c) => c.slug === sp.city) ?? cities[0];
-  const locs = city ? (db.prepare(`SELECT l.*, (SELECT COUNT(*) FROM listings x WHERE x.locality_id = l.id AND x.status = 'live') live FROM localities l WHERE city_id = ? ORDER BY l.trending DESC, l.name`).all(city.id) as Loc[]) : [];
+  const locs = city ? (await db.prepare(`SELECT l.*, (SELECT COUNT(*) FROM listings x WHERE x.locality_id = l.id AND x.status = 'live') live FROM localities l WHERE city_id = ? ORDER BY l.trending DESC, l.name`).all(city.id) as Loc[]) : [];
 
   return (
     <div>

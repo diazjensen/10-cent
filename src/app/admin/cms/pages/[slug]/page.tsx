@@ -15,7 +15,7 @@ export async function generateMetadata({ params }: PageProps<"/admin/cms/pages/[
 export default async function EditStaticPage({ params }: PageProps<"/admin/cms/pages/[slug]">) {
   await requireAdmin("cms");
   const { slug } = await params;
-  const p = db.prepare("SELECT * FROM static_pages WHERE slug = ?").get(slug) as { slug: string; title: string; body: string; updated_at: string } | undefined;
+  const p = await db.prepare("SELECT * FROM static_pages WHERE slug = ?").get(slug) as { slug: string; title: string; body: string; updated_at: string } | undefined;
   if (!p) notFound();
   return (
     <div>

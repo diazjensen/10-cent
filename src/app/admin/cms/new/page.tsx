@@ -14,7 +14,7 @@ export default async function NewArticle() {
       <Breadcrumbs items={[{ label: "Admin", href: "/admin" }, { label: "Articles", href: "/admin/cms" }, { label: "New" }]} />
       <div className="mt-3" />
       <AdminHeader title="New article" sub="Saves as a draft until you publish. Use Preview to see exactly how it will render." />
-      <ArticleEditor cities={getCities().map((c) => ({ id: c.id, name: c.name }))} defaultAuthor={me.name ?? ""} />
+      <ArticleEditor cities={(await getCities()).map((c) => ({ id: c.id, name: c.name }))} defaultAuthor={me.name ?? ""} />
     </div>
   );
 }

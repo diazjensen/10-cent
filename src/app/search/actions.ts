@@ -40,14 +40,14 @@ async function saveSearchInner(_prev: SaveSearchState, form: FormData): Promise<
   if (!query) return { error: "Add at least one filter before saving a search." };
   if (!user.email && d.channels.includes("email") && d.channels.length === 1)
     return { fieldErrors: { channels: "Add an email to your profile, or pick SMS / WhatsApp / push" } };
-  const existing = db.prepare("SELECT id FROM saved_searches WHERE user_id = ? AND query = ?").get(user.id, query) as { id: number } | undefined;
+  const existing = await db.prepare("SELECT id FROM saved_searches WHERE user_id = ? AND query = ?").get(user.id, query) as { id: number } | undefined;
   if (existing) {
-    db.prepare("UPDATE saved_searches SET name = ?, channels = ?, frequency = ? WHERE id = ?").run(d.name, d.channels.join(","), d.frequency, existing.id);
+    await db.prepare("UPDATE saved_searches SET name = ?, channels = ?, frequency = ? WHERE id = ?").run(d.name, d.channels.join(","), d.frequency, existing.id);
   } else {
-    const n = (db.prepare("SELECT COUNT(*) n FROM saved_searches WHERE user_id = ?").get(user.id) as { n: number }).n;
+    const n = (await db.prepare("SELECT COUNT(*) n FROM saved_searches WHERE user_id = ?").get(user.id) as { n: number }).n;
     if (n >= 25) return { error: "You have 25 saved searches. Delete one from your account to add another." };
-    db.prepare("INSERT INTO saved_searches (user_id, name, query, channels, frequency, last_checked_at) VALUES (?,?,?,?,?,?)")
-      .run(user.id, d.name, query, d.channels.join(","), d.frequency, new Date().toISOString());
+    await db.prepare("INSERT INTO saved_searches (user_id, name, query, channels, frequency, last_checked_at) VALUES (?,?,?,?,?,?)")
+            .run(user.id, d.name, query, d.channels.join(","), d.frequency, new Date().toISOString());
   }
   revalidatePath("/account/searches");
   return { ok: true, updated: !!existing };

@@ -3,9 +3,9 @@ import { db } from "@/lib/db";
 import { Logo } from "./logo";
 
 /** Footer with city and locality link directories for SEO (PRD H5). */
-export function Footer() {
-  const cities = db.prepare("SELECT id, slug, name FROM cities ORDER BY sort").all() as Array<{ id: number; slug: string; name: string }>;
-  const locs = db.prepare("SELECT l.slug, l.name, c.slug AS city_slug, l.city_id FROM localities l JOIN cities c ON c.id = l.city_id ORDER BY l.trending DESC, l.name").all() as Array<{ slug: string; name: string; city_slug: string; city_id: number }>;
+export async function Footer() {
+  const cities = await db.prepare("SELECT id, slug, name FROM cities ORDER BY sort").all() as Array<{ id: number; slug: string; name: string }>;
+  const locs = await db.prepare("SELECT l.slug, l.name, c.slug AS city_slug, l.city_id FROM localities l JOIN cities c ON c.id = l.city_id ORDER BY l.trending DESC, l.name").all() as Array<{ slug: string; name: string; city_slug: string; city_id: number }>;
   return (
     <footer className="mt-24 border-t border-line bg-paper-2/60">
       <div className="mx-auto max-w-[1240px] px-4 md:px-6 py-12">

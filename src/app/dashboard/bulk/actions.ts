@@ -27,7 +27,7 @@ export async function bulkUploadAction(_prev: BulkResult, fd: FormData): Promise
   const empty = { created: [], errors: [], total: 0 };
   if (!user) return { ok: false, message: "Log in again.", ...empty };
   if (!["agent", "builder", "admin"].includes(user.role)) return { ok: false, message: "Bulk upload is available to agents and builders.", ...empty };
-  if (!rateLimit(`bulk:${user.id}`, 10, 3600).ok) return { ok: false, message: "Too many bulk uploads this hour. Try again later.", ...empty };
+  if (!(await rateLimit(`bulk:${user.id}`, 10, 3600)).ok) return { ok: false, message: "Too many bulk uploads this hour. Try again later.", ...empty };
   const file = fd.get("file");
   if (!(file instanceof File) || file.size === 0) return { ok: false, message: "Choose a CSV file to upload.", ...empty };
   if (file.size > 2 * 1024 * 1024) return { ok: false, message: "The file is larger than 2 MB. Split it into smaller files.", ...empty };
@@ -42,12 +42,12 @@ export async function bulkUploadAction(_prev: BulkResult, fd: FormData): Promise
   const data = rows.slice(1);
   if (data.length > MAX_ROWS) return { ok: false, message: `Up to ${MAX_ROWS} rows per upload. This file has ${data.length}.`, ...empty };
 
-  const cities = db.prepare("SELECT id, name, slug FROM cities").all() as { id: number; name: string; slug: string }[];
-  const locs = db.prepare("SELECT id, city_id, name, slug, lat, lng FROM localities").all() as { id: number; city_id: number; name: string; slug: string; lat: number; lng: number }[];
+  const cities = await db.prepare("SELECT id, name, slug FROM cities").all() as { id: number; name: string; slug: string }[];
+  const locs = await db.prepare("SELECT id, city_id, name, slug, lat, lng FROM localities").all() as { id: number; city_id: number; name: string; slug: string; lat: number; lng: number }[];
   const created: NonNullable<BulkResult>["created"] = [];
   const errors: NonNullable<BulkResult>["errors"] = [];
 
-  data.forEach((cells, idx) => {
+  for (const [idx, cells] of data.entries()) {
     const rowNo = idx + 2; // spreadsheet row number (header is row 1)
     const get = (k: string) => (cells[header.indexOf(k)] ?? "").trim();
     const msgs: string[] = [];
@@ -92,21 +92,21 @@ export async function bulkUploadAction(_prev: BulkResult, fd: FormData): Promise
         if (!probe.success) for (const [k, v] of Object.entries(issuesToErrors(probe.error.issues))) if (!errs[k] && k !== "price" && k !== "description") errs[k] = v;
         for (const [k, v] of Object.entries(errs)) msgs.push(`${k === "lat" ? "latitude/longitude" : k}: ${v}`);
       } else {
-        const s = saveListing(user, r.data, null, "bulk");
+        const s = await saveListing(user, r.data, null, "bulk");
         if (!s.ok) msgs.push(...Object.values(s.errors));
         else {
           const f = s.flags;
-          const title = (db.prepare("SELECT title FROM listings WHERE id = ?").get(s.id) as { title: string }).title;
+          const title = ((await db.prepare("SELECT title FROM listings WHERE id = ?").get(s.id)) as { title: string }).title;
           created.push({ row: rowNo, id: s.id, title, flagged: f.duplicate || f.priceOutlier || f.duplicateImages });
         }
       }
     }
     if (msgs.length) errors.push({ row: rowNo, messages: msgs });
-  });
+  }
 
-  audit(user.id, "listing.bulk_upload", "user", user.id, { file: file.name, rows: data.length, created: created.length, failed: errors.length });
+  await audit(user.id, "listing.bulk_upload", "user", user.id, { file: file.name, rows: data.length, created: created.length, failed: errors.length });
   if (created.length) {
-    notify(user.id, { kind: "moderation", title: `${created.length} listings submitted for review`, body: `From ${file.name}. They usually go live within 24 hours.`, link: "/dashboard/listings?tab=pending" }, ["email"]);
+    await notify(user.id, { kind: "moderation", title: `${created.length} listings submitted for review`, body: `From ${file.name}. They usually go live within 24 hours.`, link: "/dashboard/listings?tab=pending" }, ["email"]);
     revalidatePath("/dashboard", "layout");
   }
   return {

@@ -21,9 +21,9 @@ const KIND_ICON: Record<string, typeof MapPin> = { school: GraduationCap, hospit
 
 export async function generateMetadata({ params }: PageProps<"/localities/[city]/[slug]">): Promise<Metadata> {
   const { city, slug } = await params;
-  const loc = getLocality(city, slug);
+  const loc = await getLocality(city, slug);
   if (!loc) return { title: "Locality not found" };
-  const t = priceTrend(loc.id, 1)[0];
+  const t = (await priceTrend(loc.id, 1))[0];
   return {
     title: `${loc.name}, ${loc.city_name}: prices, reviews and homes`,
     description: `${loc.name} locality guide: ${t ? `₹${formatINR(t.psf)}/sq ft average, 2 BHK rent around ₹${formatINR(t.rent)}. ` : ""}Ratings for connectivity, safety and lifestyle, nearby schools, hospitals and metro, and live listings.`,
@@ -33,27 +33,27 @@ export async function generateMetadata({ params }: PageProps<"/localities/[city]
 
 export default async function LocalityPage({ params }: PageProps<"/localities/[city]/[slug]">) {
   const { city, slug } = await params;
-  const loc = getLocality(city, slug);
+  const loc = await getLocality(city, slug);
   if (!loc) notFound();
   const path = `/localities/${loc.city_slug}/${loc.slug}`;
   const user = await getUser();
-  const trend = priceTrend(loc.id, 36);
+  const trend = await priceTrend(loc.id, 36);
   const last = trend.at(-1), ly = trend.at(-13);
   const landmarks = parseLandmarks(loc.landmarks);
   const groups = Object.keys(LANDMARK_KINDS).map((k) => ({ kind: k, items: landmarks.filter((l) => l.kind === k) })).filter((g) => g.items.length);
   const others = landmarks.filter((l) => !LANDMARK_KINDS[l.kind]);
   if (others.length) groups.push({ kind: "other", items: others });
 
-  const counts = db.prepare(`SELECT transaction_type tx, property_type type, COUNT(*) n, MIN(price) min FROM listings
+  const counts = await db.prepare(`SELECT transaction_type tx, property_type type, COUNT(*) n, MIN(price) min FROM listings
     WHERE status = 'live' AND locality_id = ? GROUP BY tx, type ORDER BY tx, n DESC`).all(loc.id) as Array<{ tx: string; type: string; n: number; min: number }>;
   const total = counts.reduce((s, c) => s + c.n, 0);
-  const latest = db.prepare(`SELECT ${CARD_SELECT} ${CARD_FROM} WHERE l.status = 'live' AND l.locality_id = ? ORDER BY l.published_at DESC LIMIT 8`).all(loc.id) as Card[];
-  const saved = new Set(user ? (db.prepare("SELECT listing_id FROM shortlists WHERE user_id = ?").all(user.id) as { listing_id: number }[]).map((r) => r.listing_id) : []);
-  const projects = db.prepare(`${PROJECT_CARD_SQL} WHERE p.approved = 1 AND p.locality_id = ? ORDER BY p.featured DESC, p.created_at DESC LIMIT 6`).all(loc.id) as ProjectCardRow[];
-  const reviews = (db.prepare(`SELECT r.id, r.rating, r.body, r.created_at, r.user_id, u.name FROM reviews r JOIN users u ON u.id = r.user_id
+  const latest = await db.prepare(`SELECT ${CARD_SELECT} ${CARD_FROM} WHERE l.status = 'live' AND l.locality_id = ? ORDER BY l.published_at DESC LIMIT 8`).all(loc.id) as Card[];
+  const saved = new Set(user ? (await db.prepare("SELECT listing_id FROM shortlists WHERE user_id = ?").all(user.id) as { listing_id: number }[]).map((r) => r.listing_id) : []);
+  const projects = await db.prepare(`${PROJECT_CARD_SQL} WHERE p.approved = 1 AND p.locality_id = ? ORDER BY p.featured DESC, p.created_at DESC LIMIT 6`).all(loc.id) as ProjectCardRow[];
+  const reviews = (await db.prepare(`SELECT r.id, r.rating, r.body, r.created_at, r.user_id, u.name FROM reviews r JOIN users u ON u.id = r.user_id
     WHERE r.locality_id = ? AND r.status = 'published' ORDER BY r.created_at DESC`).all(loc.id) as ReviewRow[]).map((r) => ({ ...r, name: shortName(r.name) }));
-  const mine = user ? (db.prepare("SELECT rating, body FROM reviews WHERE user_id = ? AND locality_id = ?").get(user.id, loc.id) as { rating: number; body: string } | undefined) : undefined;
-  const nearby = db.prepare(`SELECT slug, name, ((lat-?)*(lat-?) + (lng-?)*(lng-?)) d FROM localities WHERE city_id = ? AND id <> ? ORDER BY d LIMIT 6`).all(loc.lat, loc.lat, loc.lng, loc.lng, loc.city_id, loc.id) as Array<{ slug: string; name: string }>;
+  const mine = user ? (await db.prepare("SELECT rating, body FROM reviews WHERE user_id = ? AND locality_id = ?").get(user.id, loc.id) as { rating: number; body: string } | undefined) : undefined;
+  const nearby = await db.prepare(`SELECT slug, name, ((lat-?)*(lat-?) + (lng-?)*(lng-?)) d FROM localities WHERE city_id = ? AND id <> ? ORDER BY d LIMIT 6`).all(loc.lat, loc.lat, loc.lng, loc.lng, loc.city_id, loc.id) as Array<{ slug: string; name: string }>;
   const ratings = [["Overall", loc.rating], ["Connectivity", loc.connectivity], ["Safety", loc.safety], ["Lifestyle", loc.lifestyle]] as const;
   const searchBase = `/search?city=${loc.city_slug}&loc=${loc.id}`;
   const jsonLd = { "@context": "https://schema.org", "@type": "Place", name: `${loc.name}, ${loc.city_name}`, geo: { "@type": "GeoCoordinates", latitude: loc.lat, longitude: loc.lng }, ...(reviews.length ? { aggregateRating: { "@type": "AggregateRating", ratingValue: (reviews.reduce((s, r) => s + r.rating, 0) / reviews.length).toFixed(1), reviewCount: reviews.length } } : {}) };

@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import { requireAdmin } from "@/lib/auth";
+import { pgInt } from "@/lib/admin/guard";
 import { db } from "@/lib/db";
 import { formatDate, timeAgo } from "@/lib/format";
 import { Breadcrumbs } from "@/components/ui";
@@ -17,11 +18,11 @@ export async function generateMetadata({ params }: PageProps<"/admin/listings/[i
 export default async function AdminListingPage({ params }: PageProps<"/admin/listings/[id]">) {
   await requireAdmin("moderation");
   const { id } = await params;
-  const l = getAdminListing(Number(id));
+  const l = await getAdminListing(pgInt(id));
   if (!l) notFound();
-  const log = modLog(l.id);
-  const stats = db.prepare("SELECT SUM(impressions) i, SUM(views) v, SUM(contacts) c, SUM(shortlists) s FROM listing_stats WHERE listing_id = ?").get(l.id) as { i: number | null; v: number | null; c: number | null; s: number | null };
-  const reports = db.prepare("SELECT id, reason, status, created_at FROM reports WHERE listing_id = ? ORDER BY id DESC").all(l.id) as { id: number; reason: string; status: string; created_at: string }[];
+  const log = await modLog(l.id);
+  const stats = await db.prepare("SELECT SUM(impressions) i, SUM(views) v, SUM(contacts) c, SUM(shortlists) s FROM listing_stats WHERE listing_id = ?").get(l.id) as { i: number | null; v: number | null; c: number | null; s: number | null };
+  const reports = await db.prepare("SELECT id, reason, status, created_at FROM reports WHERE listing_id = ? ORDER BY id DESC").all(l.id) as { id: number; reason: string; status: string; created_at: string }[];
 
   return (
     <div>

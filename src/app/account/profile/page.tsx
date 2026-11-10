@@ -19,7 +19,7 @@ export default async function ProfilePage({ searchParams }: PageProps<"/account/
   const nextRaw = typeof sp.next === "string" ? sp.next : "/";
   const next = nextRaw.startsWith("/") && !nextRaw.startsWith("//") ? nextRaw : "/";
   const u = await requireUser(`/account/profile${welcome ? `?welcome=1&next=${encodeURIComponent(next)}` : ""}`);
-  const cities = getCities();
+  const cities = await getCities();
   return (
     <>
       {welcome ? (

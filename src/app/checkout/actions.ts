@@ -15,9 +15,9 @@ export type CouponState = { ok: boolean; code?: string; percent?: number; error?
 export async function checkCouponAction(code: string): Promise<CouponState> {
   const user = await getUser();
   if (!user) return { ok: false, error: "Log in again." };
-  if (!rateLimit(`coupon:${user.id}`, 20, 600).ok) return { ok: false, error: "Too many attempts. Try again in a few minutes." };
+  if (!(await rateLimit(`coupon:${user.id}`, 20, 600)).ok) return { ok: false, error: "Too many attempts. Try again in a few minutes." };
   if (!code.trim()) return { ok: false, error: "Enter a coupon code" };
-  const r = findCoupon(code);
+  const r = await findCoupon(code);
   if (!r.ok) return { ok: false, error: r.error };
   return { ok: true, code: r.coupon.code, percent: r.coupon.percent_off };
 }
@@ -27,7 +27,7 @@ export type CheckoutState = { errors?: Record<string, string>; message?: string;
 export async function createOrderAction(_prev: CheckoutState, fd: FormData): Promise<CheckoutState> {
   const user = await getUser();
   if (!user) return { message: "Your session expired. Log in again." };
-  const plan = getPlan(String(fd.get("plan") ?? ""));
+  const plan = await getPlan(String(fd.get("plan") ?? ""));
   if (!plan || plan.price_paise === 0) return { message: "This plan isn't available." };
   const name = String(fd.get("billing_name") ?? "").trim();
   const gstin = String(fd.get("gstin") ?? "").trim().toUpperCase();
@@ -43,7 +43,7 @@ export async function createOrderAction(_prev: CheckoutState, fd: FormData): Pro
   let couponId: number | null = null;
   let coupon = null;
   if (couponCode) {
-    const c = findCoupon(couponCode);
+    const c = await findCoupon(couponCode);
     if (!c.ok) errors.coupon = c.error;
     else { coupon = c.coupon; couponId = c.coupon.id; }
   }
@@ -52,11 +52,11 @@ export async function createOrderAction(_prev: CheckoutState, fd: FormData): Pro
   if (Object.keys(errors).length) return { errors, values: { billing_name: name, gstin, state } };
 
   const q = quote(plan, coupon, state);
-  const info = db.prepare(
-    "INSERT INTO orders (user_id, plan_id, coupon_id, amount_paise, discount_paise, gst_paise, total_paise, status, gateway) VALUES (?,?,?,?,?,?,?, 'created', 'test')"
-  ).run(user.id, plan.id, couponId, q.amount, q.discount, q.gst, q.total);
+  const info = await db.prepare(
+      "INSERT INTO orders (user_id, plan_id, coupon_id, amount_paise, discount_paise, gst_paise, total_paise, status, gateway) VALUES (?,?,?,?,?,?,?, 'created', 'test')"
+    ).run(user.id, plan.id, couponId, q.amount, q.discount, q.gst, q.total);
   const orderId = Number(info.lastInsertRowid);
-  audit(user.id, "order.created", "order", orderId, { plan: plan.code, billing: { name, gstin: gstin || null, state }, coupon: coupon?.code ?? null });
+  await audit(user.id, "order.created", "order", orderId, { plan: plan.code, billing: { name, gstin: gstin || null, state }, coupon: coupon?.code ?? null });
   redirect(`/checkout/pay/${orderId}`);
 }
 
@@ -64,16 +64,16 @@ export async function createOrderAction(_prev: CheckoutState, fd: FormData): Pro
 export async function payOrderAction(orderId: number, outcome: "success" | "failure") {
   const user = await getUser();
   if (!user) redirect(`/login?next=/checkout/pay/${orderId}`);
-  const o = db.prepare("SELECT * FROM orders WHERE id = ?").get(orderId) as OrderRow | undefined;
+  const o = await db.prepare("SELECT * FROM orders WHERE id = ?").get(orderId) as OrderRow | undefined;
   if (!o || (o.user_id !== user.id && user.role !== "admin")) redirect("/dashboard/billing");
   if (o.status === "paid") redirect(`/checkout/pay/${orderId}`);
   if (outcome === "failure") {
-    db.prepare("UPDATE orders SET status = 'failed' WHERE id = ? AND status IN ('created','failed')").run(orderId);
-    audit(user.id, "order.failed", "order", orderId, { reason: "Simulated failure (test gateway)" });
-    notify(o.user_id, { kind: "billing", title: "Payment failed", body: `Payment for order #${orderId} didn't go through. No money was deducted. You can retry from Billing.`, link: `/checkout/pay/${orderId}` });
+    await db.prepare("UPDATE orders SET status = 'failed' WHERE id = ? AND status IN ('created','failed')").run(orderId);
+    await audit(user.id, "order.failed", "order", orderId, { reason: "Simulated failure (test gateway)" });
+    await notify(o.user_id, { kind: "billing", title: "Payment failed", body: `Payment for order #${orderId} didn't go through. No money was deducted. You can retry from Billing.`, link: `/checkout/pay/${orderId}` });
     redirect(`/checkout/pay/${orderId}?r=failed`);
   }
-  const r = fulfilOrder(orderId);
+  const r = await fulfilOrder(orderId);
   revalidatePath("/dashboard", "layout");
   if (!r.ok) redirect(`/checkout/pay/${orderId}?r=error&msg=${encodeURIComponent(r.error)}`);
   redirect(`/checkout/pay/${orderId}?r=paid`);

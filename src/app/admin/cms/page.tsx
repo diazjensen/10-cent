@@ -20,7 +20,7 @@ export default async function ArticlesAdmin({ searchParams }: PageProps<"/admin/
   if (q) { where.push("(a.title LIKE ? OR a.slug LIKE ? OR a.author_name LIKE ?)"); args.push(`%${q}%`, `%${q}%`, `%${q}%`); }
   if (cat) { where.push("a.category = ?"); args.push(cat); }
   if (status) { where.push("a.status = ?"); args.push(status); }
-  const rows = db.prepare(`SELECT a.id, a.title, a.slug, a.category, a.author_name, a.status, a.published_at, a.updated_at, a.cover_url, c.name city FROM articles a LEFT JOIN cities c ON c.id = a.city_id WHERE ${where.join(" AND ")} ORDER BY a.status = 'draft' DESC, COALESCE(a.published_at, a.updated_at) DESC`).all(...args) as { id: number; title: string; slug: string; category: string; author_name: string; status: string; published_at: string | null; updated_at: string; cover_url: string | null; city: string | null }[];
+  const rows = await db.prepare(`SELECT a.id, a.title, a.slug, a.category, a.author_name, a.status, a.published_at, a.updated_at, a.cover_url, c.name city FROM articles a LEFT JOIN cities c ON c.id = a.city_id WHERE ${where.join(" AND ")} ORDER BY a.status = 'draft' DESC, COALESCE(a.published_at, a.updated_at) DESC`).all(...args) as { id: number; title: string; slug: string; category: string; author_name: string; status: string; published_at: string | null; updated_at: string; cover_url: string | null; city: string | null }[];
   return (
     <div>
       <AdminHeader eyebrow="AD7 · Content" title="Articles & pages" sub="News, buying and renting guides, legal and tax explainers, and city guides published on /news." actions={<LinkButton href="/admin/cms/new" variant="accent" size="sm">New article</LinkButton>} />

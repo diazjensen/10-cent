@@ -27,8 +27,8 @@ const contact = z.object({
   consent: z.literal("on", { message: "Please agree to be contacted" }),
 });
 
-function superAdmin() {
-  return db.prepare("SELECT id FROM users WHERE admin_role = 'super' AND deleted_at IS NULL ORDER BY id LIMIT 1").get() as { id: number } | undefined;
+async function superAdmin() {
+  return await db.prepare("SELECT id FROM users WHERE admin_role = 'super' AND deleted_at IS NULL ORDER BY id LIMIT 1").get() as { id: number } | undefined;
 }
 
 function issues(e: z.ZodError) {
@@ -39,18 +39,18 @@ function issues(e: z.ZodError) {
 
 /** Service requests are stored as leads routed to the super admin until partner integrations go live. */
 async function save(tag: string, d: { name: string; phone: string; email: string | null }, details: string): Promise<ServiceState> {
-  const admin = superAdmin();
+  const admin = await superAdmin();
   if (!admin) return { error: "We couldn't route your request right now. Please email support@10cent.in." };
   const ip = await clientIp();
-  if (!rateLimit(`svc:${ip}`, 8, 3600).ok || !rateLimit(`svc:p:${d.phone}`, 5, 86400).ok) return { error: "We've already received several requests from you. Our team will call you shortly." };
+  if (!(await rateLimit(`svc:${ip}`, 8, 3600)).ok || !(await rateLimit(`svc:p:${d.phone}`, 5, 86400)).ok) return { error: "We've already received several requests from you. Our team will call you shortly." };
   const today = new Date().toISOString().slice(0, 10);
-  const dup = db.prepare("SELECT id FROM leads WHERE listing_id IS NULL AND project_id IS NULL AND phone = ? AND message LIKE ? AND substr(created_at,1,10) = ?").get(d.phone, `${tag}%`, today);
+  const dup = await db.prepare("SELECT id FROM leads WHERE listing_id IS NULL AND project_id IS NULL AND phone = ? AND message LIKE ? AND substr(created_at,1,10) = ?").get(d.phone, `${tag}%`, today);
   if (dup) return { ok: true, message: "We already have your request from today. An advisor will call you within one working day." };
   const u = await getUser();
   const message = `${tag} ${details}`;
-  db.prepare("INSERT INTO leads (listing_id, project_id, seeker_id, poster_id, name, phone, email, message, channel, consent) VALUES (NULL, NULL, ?, ?, ?, ?, ?, ?, 'enquiry', 1)")
-    .run(u?.id ?? null, admin.id, d.name, d.phone, d.email, message);
-  notify(admin.id, { kind: "lead", title: `${tag.replace(/[[\]]/g, "")} request from ${d.name}`, body: `${d.phone}${d.email ? `, ${d.email}` : ""}. ${details}`, link: "/admin" }, ["email"]);
+  await db.prepare("INSERT INTO leads (listing_id, project_id, seeker_id, poster_id, name, phone, email, message, channel, consent) VALUES (NULL, NULL, ?, ?, ?, ?, ?, ?, 'enquiry', 1)")
+        .run(u?.id ?? null, admin.id, d.name, d.phone, d.email, message);
+  await notify(admin.id, { kind: "lead", title: `${tag.replace(/[[\]]/g, "")} request from ${d.name}`, body: `${d.phone}${d.email ? `, ${d.email}` : ""}. ${details}`, link: "/admin" }, ["email"]);
   return { ok: true };
 }
 

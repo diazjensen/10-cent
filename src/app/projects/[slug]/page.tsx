@@ -18,37 +18,37 @@ import { Badge, Breadcrumbs, Container, Notice, btnClass } from "@/components/ui
 
 export async function generateMetadata({ params }: PageProps<"/projects/[slug]">): Promise<Metadata> {
   const { slug } = await params;
-  const p = getProjectBySlug(slug);
+  const p = await getProjectBySlug(slug);
   if (!p || !p.approved) return { title: "Project not found" };
-  const { units } = projectParts(p.id);
+  const { units } = await projectParts(p.id);
   return {
     title: `${p.name}, ${p.loc_name ?? p.city_name}: price list, floor plans, RERA`,
     description: `${p.name} by ${p.builder_company ?? p.builder_name} in ${[p.loc_name, p.city_name].filter(Boolean).join(", ")}. ${bhkLabel(units.map((u) => u.bhk).join(",")) ?? ""} from ${formatPrice(p.price_min)}. ${PROJECT_STATUS[p.status]?.label ?? ""}${p.rera_id ? `, RERA ${p.rera_id}` : ""}.`,
     alternates: { canonical: `/projects/${p.slug}` },
-    openGraph: { images: projectParts(p.id).media.slice(0, 1).map((m) => m.url) },
+    openGraph: { images: (await projectParts(p.id)).media.slice(0, 1).map((m) => m.url) },
   };
 }
 
 export default async function ProjectPage({ params }: PageProps<"/projects/[slug]">) {
   const { slug } = await params;
-  const p = getProjectBySlug(slug);
+  const p = await getProjectBySlug(slug);
   if (!p) notFound();
   const user = await getUser();
   const preview = !p.approved;
   if (preview && !(user && (user.id === p.builder_id || can(user, "projects")))) notFound();
 
-  const { units, towers, media } = projectParts(p.id);
+  const { units, towers, media } = await projectParts(p.id);
   const photos = media.filter((m) => m.kind !== "floorplan").map((m, i) => ({ url: m.url, caption: `${p.name} photo ${i + 1}` }));
   const amenities = parseJsonArray<string>(p.amenities);
   const advantages = parseJsonArray<{ name: string; distance: string }>(p.location_advantages);
   const plans = units.filter((u) => u.floor_plan_url).map((u) => ({ url: u.floor_plan_url!, caption: `${u.label} floor plan` }));
-  const listings = searchListings({ project: String(p.id), sort: "newest" }, { pageSize: 8 });
-  const saved = new Set(user ? (db.prepare("SELECT listing_id FROM shortlists WHERE user_id = ?").all(user.id) as { listing_id: number }[]).map((r) => r.listing_id) : []);
+  const listings = await searchListings({ project: String(p.id), sort: "newest" }, { pageSize: 8 });
+  const saved = new Set(user ? (await db.prepare("SELECT listing_id FROM shortlists WHERE user_id = ?").all(user.id) as { listing_id: number }[]).map((r) => r.listing_id) : []);
   const now = new Date().toISOString();
-  const banner = db.prepare(`SELECT id, title, subtitle FROM banners WHERE placement = 'project_sidebar' AND active = 1 AND (starts_at IS NULL OR starts_at <= ?) AND (ends_at IS NULL OR ends_at >= ?)
+  const banner = await db.prepare(`SELECT id, title, subtitle FROM banners WHERE placement = 'project_sidebar' AND active = 1 AND (starts_at IS NULL OR starts_at <= ?) AND (ends_at IS NULL OR ends_at >= ?)
     AND (project_id IS NULL OR project_id <> ?) ORDER BY (project_id IS NULL), id DESC LIMIT 1`).get(now, now, p.id) as { id: number; title: string; subtitle: string | null } | undefined;
-  if (banner) db.prepare("UPDATE banners SET impressions = impressions + 1 WHERE id = ?").run(banner.id);
-  const more = db.prepare("SELECT slug, name, status FROM projects WHERE builder_id = ? AND id <> ? AND approved = 1 ORDER BY created_at DESC LIMIT 4").all(p.builder_id, p.id) as Array<{ slug: string; name: string; status: string }>;
+  if (banner) await db.prepare("UPDATE banners SET impressions = impressions + 1 WHERE id = ?").run(banner.id);
+  const more = await db.prepare("SELECT slug, name, status FROM projects WHERE builder_id = ? AND id <> ? AND approved = 1 ORDER BY created_at DESC LIMIT 4").all(p.builder_id, p.id) as Array<{ slug: string; name: string; status: string }>;
   const reraUrl = p.rera_state ? RERA_PORTALS[p.rera_state] : undefined;
   const st = PROJECT_STATUS[p.status];
   const builder = p.builder_company ?? p.builder_name ?? "the builder";

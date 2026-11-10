@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { requireAdmin } from "@/lib/auth";
+import { pageNum } from "@/lib/admin/guard";
 import { db } from "@/lib/db";
 import { formatPaise, formatDate } from "@/lib/format";
 import { AdminHeader, FilterBar, FInput, Table, Th, Td, EmptyRow, StatusBadge, Pager, qs } from "@/components/admin/ui";
@@ -16,14 +17,14 @@ export default async function InvoicesPage({ searchParams }: PageProps<"/admin/b
   const sp = await searchParams;
   const s = (k: string) => (typeof sp[k] === "string" ? (sp[k] as string).trim() : "");
   const q = s("q"), from = s("from"), to = s("to");
-  const page = Math.max(1, Number(s("page")) || 1);
+  const page = pageNum(s("page"));
   const where = ["1=1"]; const args: unknown[] = [];
   if (q) { where.push("(i.number LIKE ? OR i.billing_name LIKE ? OR i.billing_gstin LIKE ?)"); args.push(`%${q}%`, `%${q}%`, `%${q}%`); }
   if (from) { where.push("substr(i.created_at,1,10) >= ?"); args.push(from); }
   if (to) { where.push("substr(i.created_at,1,10) <= ?"); args.push(to); }
   const base = `FROM invoices i JOIN orders o ON o.id = i.order_id JOIN plans p ON p.id = o.plan_id WHERE ${where.join(" AND ")}`;
-  const sum = db.prepare(`SELECT COUNT(*) n, SUM(i.taxable_paise) t, SUM(i.cgst_paise + i.sgst_paise) cs, SUM(i.igst_paise) ig, SUM(i.total_paise) tot ${base}`).get(...args) as { n: number; t: number | null; cs: number | null; ig: number | null; tot: number | null };
-  const rows = db.prepare(`SELECT i.*, o.status order_status, o.user_id, p.name plan ${base} ORDER BY i.id DESC LIMIT ${PER} OFFSET ${(page - 1) * PER}`).all(...args) as Row[];
+  const sum = await db.prepare(`SELECT COUNT(*) n, SUM(i.taxable_paise) t, SUM(i.cgst_paise + i.sgst_paise) cs, SUM(i.igst_paise) ig, SUM(i.total_paise) tot ${base}`).get(...args) as { n: number; t: number | null; cs: number | null; ig: number | null; tot: number | null };
+  const rows = await db.prepare(`SELECT i.*, o.status order_status, o.user_id, p.name plan ${base} ORDER BY i.id DESC LIMIT ${PER} OFFSET ${(page - 1) * PER}`).all(...args) as Row[];
 
   return (
     <div>

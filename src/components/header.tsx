@@ -19,10 +19,10 @@ export const NAV = [
 
 export async function Header() {
   const [user, jar] = await Promise.all([getUser(), cookies()]);
-  const cities = getCities().map((c) => ({ slug: c.slug, name: c.name, lat: c.lat, lng: c.lng }));
+  const cities = (await getCities()).map((c) => ({ slug: c.slug, name: c.name, lat: c.lat, lng: c.lng }));
   const citySlug = jar.get("tc_city")?.value;
   const city = cities.find((c) => c.slug === citySlug) ?? null;
-  const unread = user ? (db.prepare("SELECT COUNT(*) n FROM notifications WHERE user_id = ? AND read = 0").get(user.id) as { n: number }).n : 0;
+  const unread = user ? (await db.prepare("SELECT COUNT(*) n FROM notifications WHERE user_id = ? AND read = 0").get(user.id) as { n: number }).n : 0;
   const withCity = (href: string) => (city && href.startsWith("/search") ? `${href}&city=${city.slug}` : href);
 
   return (

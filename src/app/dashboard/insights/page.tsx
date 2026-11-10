@@ -19,19 +19,19 @@ export default async function Insights({ searchParams }: PageProps<"/dashboard/i
   for (let i = 29; i >= 0; i--) days.push(new Date(nowMs() - i * 86400000).toISOString().slice(0, 10));
   const from = days[0];
 
-  const mine = db.prepare(
-    `SELECT l.id, l.title, l.status, l.price, l.locality_id,
+  const mine = await db.prepare(
+      `SELECT l.id, l.title, l.status, l.price, l.locality_id,
        COALESCE(SUM(s.impressions),0) impressions, COALESCE(SUM(s.views),0) views, COALESCE(SUM(s.contacts),0) contacts, COALESCE(SUM(s.shortlists),0) shortlists,
        (SELECT COUNT(*) FROM listing_media m WHERE m.listing_id = l.id AND m.kind = 'photo') photos
      FROM listings l LEFT JOIN listing_stats s ON s.listing_id = l.id AND s.day >= ?
      WHERE l.user_id = ? GROUP BY l.id ORDER BY views DESC`
-  ).all(from, subject.id) as Array<{ id: number; title: string; status: string; price: number; locality_id: number; impressions: number; views: number; contacts: number; shortlists: number; photos: number }>;
+    ).all(from, subject.id) as Array<{ id: number; title: string; status: string; price: number; locality_id: number; impressions: number; views: number; contacts: number; shortlists: number; photos: number }>;
 
-  const rows = db.prepare(
-    `SELECT s.day, SUM(s.impressions) impressions, SUM(s.views) views, SUM(s.contacts) contacts
+  const rows = await db.prepare(
+      `SELECT s.day, SUM(s.impressions) impressions, SUM(s.views) views, SUM(s.contacts) contacts
      FROM listing_stats s JOIN listings l ON l.id = s.listing_id
      WHERE l.user_id = ? AND s.day >= ? ${listingId ? "AND l.id = ?" : ""} GROUP BY s.day`
-  ).all(...[subject.id, from, ...(listingId ? [listingId] : [])]) as Day[];
+    ).all(...[subject.id, from, ...(listingId ? [listingId] : [])]) as Day[];
   const byDay = new Map(rows.map((r) => [r.day, r]));
   const series = days.map((d) => byDay.get(d) ?? { day: d, impressions: 0, views: 0, contacts: 0 });
   const sum = (k: keyof Omit<Day, "day">) => series.reduce((a, r) => a + r[k], 0);

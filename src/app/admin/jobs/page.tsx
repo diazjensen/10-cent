@@ -10,14 +10,15 @@ export const metadata: Metadata = { title: "Background jobs" };
 
 export default async function JobsPage() {
   await requireAdmin("jobs");
-  const last = (name: string) => {
-    const rows = db.prepare("SELECT a.details, a.created_at, u.name FROM audit_logs a LEFT JOIN users u ON u.id = a.actor_id WHERE a.action = ? ORDER BY a.id DESC LIMIT 5").all(`job.${name}`) as { details: string | null; created_at: string; name: string | null }[];
+  const last = async (name: string) => {
+    const rows = await db.prepare("SELECT a.details, a.created_at, u.name FROM audit_logs a LEFT JOIN users u ON u.id = a.actor_id WHERE a.action = ? ORDER BY a.id DESC LIMIT 5").all(`job.${name}`) as { details: string | null; created_at: string; name: string | null }[];
     return rows.map((r) => {
       let d: { ok?: boolean; summary?: string } = {};
       try { d = JSON.parse(r.details ?? "{}"); } catch { /* ignore */ }
       return { at: r.created_at, by: r.name ?? "Scheduler", ok: d.ok !== false, summary: d.summary ?? "" };
     });
   };
+  const allRuns = await Promise.all(Object.keys(JOBS).map((name) => last(name)));
   const secretSet = !!process.env.CRON_SECRET;
 
   return (
@@ -28,8 +29,8 @@ export default async function JobsPage() {
         <span className="text-muted">Schedule reference: <code>src/lib/jobs/README.md</code></span>
       </div>
       <div className="grid lg:grid-cols-2 gap-4">
-        {Object.entries(JOBS).map(([name, j]) => {
-          const runs = last(name);
+        {Object.entries(JOBS).map(([name, j], idx) => {
+          const runs = allRuns[idx];
           return (
             <section key={name} className="bg-card border border-line rounded-[var(--radius-md)] p-4 flex flex-col">
               <div className="flex items-start justify-between gap-3">

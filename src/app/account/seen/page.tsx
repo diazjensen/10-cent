@@ -14,8 +14,8 @@ export const metadata: Metadata = { title: "Recently seen", robots: { index: fal
 
 export default async function SeenPage() {
   const u = await requireUser("/account/seen");
-  const rows = db.prepare(`SELECT ${CARD_SELECT}, s.seen_at ${CARD_FROM} JOIN seen_listings s ON s.listing_id = l.id AND s.user_id = ? WHERE l.status = 'live' ORDER BY s.seen_at DESC LIMIT 60`).all(u.id) as Array<Card & { seen_at: string }>;
-  const saved = new Set((db.prepare("SELECT listing_id FROM shortlists WHERE user_id = ?").all(u.id) as { listing_id: number }[]).map((r) => r.listing_id));
+  const rows = await db.prepare(`SELECT ${CARD_SELECT}, s.seen_at ${CARD_FROM} JOIN seen_listings s ON s.listing_id = l.id AND s.user_id = ? WHERE l.status = 'live' ORDER BY s.seen_at DESC LIMIT 60`).all(u.id) as Array<Card & { seen_at: string }>;
+  const saved = new Set((await db.prepare("SELECT listing_id FROM shortlists WHERE user_id = ?").all(u.id) as { listing_id: number }[]).map((r) => r.listing_id));
   return (
     <>
       <AccountHeading title="Recently seen" sub="Listings you opened, newest first. Only live listings are shown."

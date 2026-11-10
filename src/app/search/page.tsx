@@ -21,18 +21,18 @@ import { CompareTray } from "@/components/property/compare-ui";
 
 const NEAR_KINDS = ["metro", "school", "hospital"];
 
-function context(p: SearchParamsObj) {
-  const city = p.city ? getCity(p.city) : undefined;
-  const locIds = (p.loc || "").split(",").map(Number).filter((n) => Number.isInteger(n) && n > 0);
+async function context(p: SearchParamsObj) {
+  const city = p.city ? await getCity(p.city) : undefined;
+  const locIds = (p.loc || "").split(",").map(Number).filter((n) => Number.isInteger(n) && n > 0 && n < 2e9);
   const locRows = locIds.length
-    ? (db.prepare(`SELECT id, name, landmarks, city_id FROM localities WHERE id IN (${locIds.map(() => "?").join(",")})`).all(...locIds) as Array<{ id: number; name: string; landmarks: string | null; city_id: number }>)
+    ? (await db.prepare(`SELECT id, name, landmarks, city_id FROM localities WHERE id IN (${locIds.map(() => "?").join(",")})`).all(...locIds) as Array<{ id: number; name: string; landmarks: string | null; city_id: number }>)
     : [];
   return { city, locRows };
 }
 
 export async function generateMetadata({ searchParams }: PageProps<"/search">): Promise<Metadata> {
   const p = flattenParams(await searchParams);
-  const { city, locRows } = context(p);
+  const { city, locRows } = await context(p);
   const heading = describeSearch(p, { city: city?.name, localities: locRows.map((l) => l.name) });
   const canonical = toQuery(p, ["page", "view", "sort", "bounds", "near", "nearname"]);
   return {
@@ -47,25 +47,25 @@ export default async function SearchPage({ searchParams }: PageProps<"/search">)
   const raw = await searchParams;
   const p = flattenParams(raw);
   const user = await getUser();
-  const { city, locRows } = context(p);
+  const { city, locRows } = await context(p);
   const view = p.view === "map" ? "map" : "list";
 
-  const res = searchListings(p);
-  recordImpressions(res.rows.map((r) => r.id));
-  const pins = view === "map" ? searchListings({ ...p, page: "1" }, { all: true }).rows.filter((r) => r.lat != null && r.lng != null) : [];
-  const saved = shortlistIds(user?.id);
+  const res = await searchListings(p);
+  await recordImpressions(res.rows.map((r) => r.id));
+  const pins = view === "map" ? (await searchListings({ ...p, page: "1" }, { all: true })).rows.filter((r) => r.lat != null && r.lng != null) : [];
+  const saved = await shortlistIds(user?.id);
 
-  const banner = activeBanner("search_inline");
-  if (banner) db.prepare("UPDATE banners SET impressions = impressions + 1 WHERE id = ?").run(banner.id);
+  const banner = await activeBanner("search_inline");
+  if (banner) await db.prepare("UPDATE banners SET impressions = impressions + 1 WHERE id = ?").run(banner.id);
 
-  const cities = getCities().map((c) => ({ slug: c.slug, name: c.name }));
-  const localities = city ? getLocalities(city.id).map((l) => ({ id: l.id, name: l.name })) : [];
+  const cities = (await getCities()).map((c) => ({ slug: c.slug, name: c.name }));
+  const localities = city ? (await getLocalities(city.id)).map((l) => ({ id: l.id, name: l.name })) : [];
 
   // Nearby search options: landmarks of the selected localities, or of every locality in the city.
   const lmSource = locRows.length
     ? locRows
     : city
-      ? (db.prepare("SELECT id, name, landmarks, city_id FROM localities WHERE city_id = ? ORDER BY name").all(city.id) as typeof locRows)
+      ? (await db.prepare("SELECT id, name, landmarks, city_id FROM localities WHERE city_id = ? ORDER BY name").all(city.id) as typeof locRows)
       : [];
   const seenLm = new Set<string>();
   const nearOptions: NearOption[] = lmSource.flatMap((l) =>

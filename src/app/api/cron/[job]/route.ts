@@ -37,7 +37,7 @@ async function handle(req: Request, ctx: RouteContext<"/api/cron/[job]">) {
   if (!auth.ok) return NextResponse.json({ error: auth.error }, { status: auth.status });
   const force = new URL(req.url).searchParams.get("force") === "1";
   const names = job === "all" ? Object.keys(JOBS) : [job];
-  const results = names.map((n) => runJob(n, { actorId: auth.actorId, force, ip: (req.headers.get("x-forwarded-for") ?? "").split(",")[0].trim() || "cron" }));
+  const results = await Promise.all(names.map((n) => runJob(n, { actorId: auth.actorId, force, ip: (req.headers.get("x-forwarded-for") ?? "").split(",")[0].trim() || "cron" })));
   const ok = results.every((r) => r.ok);
   return NextResponse.json(job === "all" ? { ok, results } : results[0], { status: ok ? 200 : 500, headers: { "cache-control": "no-store" } });
 }

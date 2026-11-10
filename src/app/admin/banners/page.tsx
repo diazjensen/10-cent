@@ -46,8 +46,8 @@ function BannerForm({ b, projects }: { b?: Banner; projects: { id: number; name:
 
 export default async function BannersPage() {
   await requireAdmin("banners");
-  const banners = db.prepare("SELECT b.*, p.name project FROM banners b LEFT JOIN projects p ON p.id = b.project_id ORDER BY b.active DESC, b.id DESC").all() as Banner[];
-  const projects = db.prepare("SELECT id, name FROM projects WHERE approved = 1 ORDER BY name").all() as { id: number; name: string }[];
+  const banners = await db.prepare("SELECT b.*, p.name project FROM banners b LEFT JOIN projects p ON p.id = b.project_id ORDER BY b.active DESC, b.id DESC").all() as Banner[];
+  const projects = await db.prepare("SELECT id, name FROM projects WHERE approved = 1 ORDER BY name").all() as { id: number; name: string }[];
   const now = new Date().toISOString();
   const state = (b: Banner) => !b.active ? "paused" : b.starts_at && b.starts_at > now ? "scheduled" : b.ends_at && b.ends_at < now ? "ended" : "running";
 

@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { requireAdmin } from "@/lib/auth";
+import { pgInt, pageNum } from "@/lib/admin/guard";
 import { db } from "@/lib/db";
 import { formatPhone, formatDate, timeAgo } from "@/lib/format";
 import { Badge } from "@/components/ui";
@@ -16,11 +17,11 @@ export default async function UsersPage({ searchParams }: PageProps<"/admin/user
   const sp = await searchParams;
   const s = (k: string) => (typeof sp[k] === "string" ? (sp[k] as string).trim() : "");
   const q = s("q"), role = s("role"), kyc = s("kyc"), state = s("state"), sort = s("sort");
-  const page = Math.max(1, Number(s("page")) || 1);
+  const page = pageNum(s("page"));
   const where = ["u.deleted_at IS NULL"]; const args: unknown[] = [];
   if (q) {
     const digits = q.replace(/\D/g, "");
-    if (/^#\d+$/.test(q)) { where.push("u.id = ?"); args.push(Number(q.slice(1))); }
+    if (/^#\d+$/.test(q)) { where.push("u.id = ?"); args.push(pgInt(q.slice(1))); }
     else { where.push("(u.name LIKE ? OR u.email LIKE ? OR (? <> '' AND u.phone LIKE ?) OR pr.company_name LIKE ?)"); args.push(`%${q}%`, `%${q}%`, digits, `%${digits}%`, `%${q}%`); }
   }
   if (role) { where.push("u.role = ?"); args.push(role); }
@@ -28,9 +29,9 @@ export default async function UsersPage({ searchParams }: PageProps<"/admin/user
   if (state === "blocked") where.push("u.blocked = 1");
   if (state === "offender") where.push("(SELECT COUNT(*) FROM reports r WHERE r.reported_user_id = u.id AND r.status = 'actioned') >= 3");
   const from = `FROM users u LEFT JOIN profiles pr ON pr.user_id = u.id WHERE ${where.join(" AND ")}`;
-  const total = (db.prepare(`SELECT COUNT(*) n ${from}`).get(...args) as { n: number }).n;
+  const total = (await db.prepare(`SELECT COUNT(*) n ${from}`).get(...args) as { n: number }).n;
   const order = sort === "listings" ? "listings DESC" : sort === "reports" ? "reports DESC" : "u.id DESC";
-  const rows = db.prepare(`SELECT u.id, u.name, u.phone, u.email, u.role, u.admin_role, u.kyc_status, u.blocked, u.created_at, u.last_login_at,
+  const rows = await db.prepare(`SELECT u.id, u.name, u.phone, u.email, u.role, u.admin_role, u.kyc_status, u.blocked, u.created_at, u.last_login_at,
       (SELECT COUNT(*) FROM listings l WHERE l.user_id = u.id) listings,
       (SELECT COUNT(*) FROM listings l WHERE l.user_id = u.id AND l.status = 'live') live,
       (SELECT COUNT(*) FROM reports r WHERE r.reported_user_id = u.id) reports,

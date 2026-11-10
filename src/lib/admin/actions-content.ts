@@ -8,25 +8,25 @@ import { notify } from "@/lib/notify";
 import { saveUpload } from "@/lib/uploads";
 import { slugify } from "@/lib/format";
 import { ARTICLE_CATEGORIES, STATES } from "@/lib/constants";
-import { staff, auditAs, done, fail, NOT_ALLOWED, str, int, bool, zodErrors, type ActionState } from "./guard";
+import { pgInt, staff, auditAs, done, fail, NOT_ALLOWED, str, int, bool, zodErrors, type ActionState } from "./guard";
 
 /* ---------------------------------------------------------------- AD6 projects */
 
 export async function toggleProject(_p: ActionState, fd: FormData): Promise<ActionState> {
   const me = await staff("projects");
   if (!me) return NOT_ALLOWED;
-  const id = Number(fd.get("id"));
+  const id = pgInt(fd.get("id"));
   const field = str(fd, "field");
   if (!["approved", "featured", "sponsored"].includes(field)) return fail("Unknown field.");
-  const p = db.prepare(`SELECT name, builder_id, ${field} v FROM projects WHERE id = ?`).get(id) as { name: string; builder_id: number; v: number } | undefined;
+  const p = await db.prepare(`SELECT name, builder_id, ${field} v FROM projects WHERE id = ?`).get(id) as { name: string; builder_id: number; v: number } | undefined;
   if (!p) return fail("Project not found.");
   const next = p.v ? 0 : 1;
-  db.prepare(`UPDATE projects SET ${field} = ? WHERE id = ?`).run(next, id);
+  await db.prepare(`UPDATE projects SET ${field} = ? WHERE id = ?`).run(next, id);
   await auditAs(me, `project.${field}.${next ? "on" : "off"}`, "project", id);
   if (field === "approved") {
-    notify(p.builder_id, next
-      ? { kind: "moderation", title: `${p.name} is approved`, body: "Your project page is now public.", link: "/dashboard" }
-      : { kind: "moderation", title: `${p.name} was unpublished`, body: "Our team has hidden this project pending review. Contact your account manager.", link: "/dashboard" }, ["email"]);
+    await notify(p.builder_id, next
+            ? { kind: "moderation", title: `${p.name} is approved`, body: "Your project page is now public.", link: "/dashboard" }
+            : { kind: "moderation", title: `${p.name} was unpublished`, body: "Our team has hidden this project pending review. Contact your account manager.", link: "/dashboard" }, ["email"]);
   }
   return done(`${p.name}: ${field} ${next ? "on" : "off"}.`);
 }
@@ -38,7 +38,7 @@ const bannerSchema = z.object({
   subtitle: z.string().trim().max(160).nullable(),
   link: z.string().trim().regex(/^(\/[^\s]*|https:\/\/[^\s]+)$/, "Use a site path like /projects/x or an https:// URL"),
   placement: z.enum(["home_top", "search_inline", "project_sidebar"], { message: "Pick a placement" }),
-  project_id: z.number().int().positive().nullable(),
+  project_id: z.number().int().positive().max(2147483647).nullable(),
   starts_at: z.string().nullable(),
   ends_at: z.string().nullable(),
 });
@@ -48,7 +48,7 @@ const dt = (s: string) => (s ? new Date(s + (s.length === 10 ? "T00:00:00+05:30"
 export async function saveBanner(_p: ActionState, fd: FormData): Promise<ActionState> {
   const me = await staff("banners");
   if (!me) return NOT_ALLOWED;
-  const id = Number(fd.get("id")) || null;
+  const id = pgInt(fd.get("id")) || null;
   const parsed = bannerSchema.safeParse({
     title: str(fd, "title"), subtitle: str(fd, "subtitle") || null, link: str(fd, "link"), placement: str(fd, "placement"),
     project_id: int(fd, "project_id"), starts_at: dt(str(fd, "starts_at")), ends_at: dt(str(fd, "ends_at")),
@@ -56,16 +56,16 @@ export async function saveBanner(_p: ActionState, fd: FormData): Promise<ActionS
   if (!parsed.success) return fail("Fix the highlighted fields.", zodErrors(parsed.error.issues));
   const v = parsed.data;
   if (v.starts_at && v.ends_at && v.ends_at <= v.starts_at) return fail("End must be after start.", { ends_at: "Before start" });
-  if (v.project_id && !db.prepare("SELECT 1 FROM projects WHERE id = ?").get(v.project_id)) return fail("Unknown project.", { project_id: "Not found" });
+  if (v.project_id && !await db.prepare("SELECT 1 FROM projects WHERE id = ?").get(v.project_id)) return fail("Unknown project.", { project_id: "Not found" });
   const active = bool(fd, "active");
   if (id) {
-    db.prepare("UPDATE banners SET title=?, subtitle=?, link=?, placement=?, project_id=?, starts_at=?, ends_at=?, active=? WHERE id = ?")
-      .run(v.title, v.subtitle, v.link, v.placement, v.project_id, v.starts_at, v.ends_at, active, id);
+    await db.prepare("UPDATE banners SET title=?, subtitle=?, link=?, placement=?, project_id=?, starts_at=?, ends_at=?, active=? WHERE id = ?")
+            .run(v.title, v.subtitle, v.link, v.placement, v.project_id, v.starts_at, v.ends_at, active, id);
     await auditAs(me, "banner.update", "banner", id, { ...v, active });
     return done("Banner saved.");
   }
-  const nid = Number(db.prepare("INSERT INTO banners (title, subtitle, link, placement, project_id, starts_at, ends_at, active) VALUES (?,?,?,?,?,?,?,?)")
-    .run(v.title, v.subtitle, v.link, v.placement, v.project_id, v.starts_at, v.ends_at, active).lastInsertRowid);
+  const nid = Number((await db.prepare("INSERT INTO banners (title, subtitle, link, placement, project_id, starts_at, ends_at, active) VALUES (?,?,?,?,?,?,?,?)")
+          .run(v.title, v.subtitle, v.link, v.placement, v.project_id, v.starts_at, v.ends_at, active)).lastInsertRowid);
   await auditAs(me, "banner.create", "banner", nid, v);
   return done("Banner scheduled.");
 }
@@ -73,10 +73,10 @@ export async function saveBanner(_p: ActionState, fd: FormData): Promise<ActionS
 export async function deleteBanner(_p: ActionState, fd: FormData): Promise<ActionState> {
   const me = await staff("banners");
   if (!me) return NOT_ALLOWED;
-  const id = Number(fd.get("id"));
-  const b = db.prepare("SELECT title, impressions, clicks FROM banners WHERE id = ?").get(id);
+  const id = pgInt(fd.get("id"));
+  const b = await db.prepare("SELECT title, impressions, clicks FROM banners WHERE id = ?").get(id);
   if (!b) return fail("Banner not found.");
-  db.prepare("DELETE FROM banners WHERE id = ?").run(id);
+  await db.prepare("DELETE FROM banners WHERE id = ?").run(id);
   await auditAs(me, "banner.delete", "banner", id, b);
   return done("Banner deleted.");
 }
@@ -90,7 +90,7 @@ const articleSchema = z.object({
   author_name: z.string().trim().min(2, "Required").max(60),
   excerpt: z.string().trim().max(300, "Keep under 300 characters").nullable(),
   body: z.string().trim().min(80, "Write at least a few paragraphs (80+ characters)").max(60000),
-  city_id: z.number().int().positive().nullable(),
+  city_id: z.number().int().positive().max(2147483647).nullable(),
   seo_title: z.string().trim().max(70, "Search engines cut titles after ~60–70 characters").nullable(),
   seo_description: z.string().trim().max(170, "Keep under 170 characters").nullable(),
 });
@@ -98,7 +98,7 @@ const articleSchema = z.object({
 export async function saveArticle(_p: ActionState, fd: FormData): Promise<ActionState> {
   const me = await staff("cms");
   if (!me) return NOT_ALLOWED;
-  const id = Number(fd.get("id")) || null;
+  const id = pgInt(fd.get("id")) || null;
   const intent = str(fd, "intent"); // save | publish | unpublish
   const parsed = articleSchema.safeParse({
     title: str(fd, "title"),
@@ -113,7 +113,7 @@ export async function saveArticle(_p: ActionState, fd: FormData): Promise<Action
   });
   if (!parsed.success) return fail("Fix the highlighted fields.", zodErrors(parsed.error.issues));
   const v = parsed.data;
-  if (db.prepare("SELECT 1 FROM articles WHERE slug = ? AND id IS NOT ?").get(v.slug, id)) return fail("Another article already uses this slug.", { slug: "Taken" });
+  if (await db.prepare("SELECT 1 FROM articles WHERE slug = ? AND id IS DISTINCT FROM ?::int").get(v.slug, id)) return fail("Another article already uses this slug.", { slug: "Taken" });
 
   let cover: string | null | undefined = undefined;
   const file = fd.get("cover");
@@ -124,7 +124,7 @@ export async function saveArticle(_p: ActionState, fd: FormData): Promise<Action
   } else if (fd.get("remove_cover") === "on") cover = null;
 
   const now = nowIso();
-  const existing = id ? (db.prepare("SELECT status, published_at, cover_url FROM articles WHERE id = ?").get(id) as { status: string; published_at: string | null; cover_url: string | null } | undefined) : undefined;
+  const existing = id ? (await db.prepare("SELECT status, published_at, cover_url FROM articles WHERE id = ?").get(id) as { status: string; published_at: string | null; cover_url: string | null } | undefined) : undefined;
   if (id && !existing) return fail("Article not found.");
   const status = intent === "publish" ? "published" : intent === "unpublish" ? "draft" : existing?.status ?? "draft";
   const published_at = status === "published" ? existing?.published_at ?? now : existing?.published_at ?? null;
@@ -132,11 +132,11 @@ export async function saveArticle(_p: ActionState, fd: FormData): Promise<Action
 
   let aid = id;
   if (id) {
-    db.prepare(`UPDATE articles SET title=?, slug=?, category=?, author_name=?, excerpt=?, body=?, cover_url=?, city_id=?, seo_title=?, seo_description=?, status=?, published_at=?, updated_at=? WHERE id = ?`)
-      .run(v.title, v.slug, v.category, v.author_name, v.excerpt, v.body, coverUrl, v.city_id, v.seo_title, v.seo_description, status, published_at, now, id);
+    await db.prepare(`UPDATE articles SET title=?, slug=?, category=?, author_name=?, excerpt=?, body=?, cover_url=?, city_id=?, seo_title=?, seo_description=?, status=?, published_at=?, updated_at=? WHERE id = ?`)
+            .run(v.title, v.slug, v.category, v.author_name, v.excerpt, v.body, coverUrl, v.city_id, v.seo_title, v.seo_description, status, published_at, now, id);
   } else {
-    aid = Number(db.prepare(`INSERT INTO articles (slug, title, category, author_name, excerpt, body, cover_url, city_id, seo_title, seo_description, status, published_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`)
-      .run(v.slug, v.title, v.category, v.author_name, v.excerpt, v.body, coverUrl, v.city_id, v.seo_title, v.seo_description, status, published_at).lastInsertRowid);
+    aid = Number((await db.prepare(`INSERT INTO articles (slug, title, category, author_name, excerpt, body, cover_url, city_id, seo_title, seo_description, status, published_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`)
+              .run(v.slug, v.title, v.category, v.author_name, v.excerpt, v.body, coverUrl, v.city_id, v.seo_title, v.seo_description, status, published_at)).lastInsertRowid);
   }
   await auditAs(me, id ? (intent === "publish" ? "article.publish" : intent === "unpublish" ? "article.unpublish" : "article.update") : intent === "publish" ? "article.create_publish" : "article.create", "article", aid!, { slug: v.slug, status });
   revalidatePath("/news", "layout");
@@ -150,10 +150,10 @@ export async function saveArticle(_p: ActionState, fd: FormData): Promise<Action
 export async function deleteArticle(_p: ActionState, fd: FormData): Promise<ActionState> {
   const me = await staff("cms");
   if (!me) return NOT_ALLOWED;
-  const id = Number(fd.get("id"));
-  const a = db.prepare("SELECT slug, title FROM articles WHERE id = ?").get(id) as { slug: string; title: string } | undefined;
+  const id = pgInt(fd.get("id"));
+  const a = await db.prepare("SELECT slug, title FROM articles WHERE id = ?").get(id) as { slug: string; title: string } | undefined;
   if (!a) return fail("Article not found.");
-  db.prepare("DELETE FROM articles WHERE id = ?").run(id);
+  await db.prepare("DELETE FROM articles WHERE id = ?").run(id);
   await auditAs(me, "article.delete", "article", id, a);
   revalidatePath("/news", "layout");
   revalidatePath("/admin", "layout");
@@ -174,11 +174,11 @@ export async function savePage(_p: ActionState, fd: FormData): Promise<ActionSta
   if (title.length < 2) errors.title = "Required";
   if (body.length < 20) errors.body = "Write at least a sentence or two";
   if (Object.keys(errors).length) return fail("Fix the highlighted fields.", errors);
-  const exists = db.prepare("SELECT 1 FROM static_pages WHERE slug = ?").get(slug);
+  const exists = await db.prepare("SELECT 1 FROM static_pages WHERE slug = ?").get(slug);
   if (isNew && exists) return fail("A page with this slug exists.", { slug: "Taken" });
   if (!isNew && !exists) return fail("Page not found.");
-  if (isNew) db.prepare("INSERT INTO static_pages (slug, title, body) VALUES (?,?,?)").run(slug, title, body);
-  else db.prepare("UPDATE static_pages SET title = ?, body = ?, updated_at = ? WHERE slug = ?").run(title, body, nowIso(), slug);
+  if (isNew) await db.prepare("INSERT INTO static_pages (slug, title, body) VALUES (?,?,?)").run(slug, title, body);
+  else await db.prepare("UPDATE static_pages SET title = ?, body = ?, updated_at = ? WHERE slug = ?").run(title, body, nowIso(), slug);
   await auditAs(me, isNew ? "page.create" : "page.update", "static_page", null, { slug });
   revalidatePath(`/${slug}`);
   if (isNew) {
@@ -200,10 +200,10 @@ const num = (fd: FormData, k: string) => {
 export async function saveCity(_p: ActionState, fd: FormData): Promise<ActionState> {
   const me = await staff("cms");
   if (!me) return NOT_ALLOWED;
-  const id = Number(fd.get("id")) || null;
+  const id = pgInt(fd.get("id")) || null;
   const name = str(fd, "name"), state = str(fd, "state");
   const slug = slugify(str(fd, "slug") || name);
-  const lat = num(fd, "lat"), lng = num(fd, "lng"), sort = int(fd, "sort") ?? 0;
+  const lat = num(fd, "lat"), lng = num(fd, "lng"), sort = Math.min(Math.max(int(fd, "sort") ?? 0, 0), 9999) || 0;
   const errors: Record<string, string> = {};
   if (name.length < 2) errors.name = "Required";
   if (!slug) errors.slug = "Required";
@@ -211,14 +211,14 @@ export async function saveCity(_p: ActionState, fd: FormData): Promise<ActionSta
   if (lat == null || Number.isNaN(lat) || lat < 6 || lat > 37) errors.lat = "India is 6–37° N";
   if (lng == null || Number.isNaN(lng) || lng < 68 || lng > 98) errors.lng = "India is 68–98° E";
   if (Object.keys(errors).length) return fail("Fix the highlighted fields.", errors);
-  if (db.prepare("SELECT 1 FROM cities WHERE slug = ? AND id IS NOT ?").get(slug, id)) return fail("Slug already used.", { slug: "Taken" });
+  if (await db.prepare("SELECT 1 FROM cities WHERE slug = ? AND id IS DISTINCT FROM ?::int").get(slug, id)) return fail("Slug already used.", { slug: "Taken" });
   const launch = bool(fd, "is_launch");
   if (id) {
-    db.prepare("UPDATE cities SET name=?, slug=?, state=?, lat=?, lng=?, is_launch=?, sort=? WHERE id = ?").run(name, slug, state, lat, lng, launch, sort, id);
+    await db.prepare("UPDATE cities SET name=?, slug=?, state=?, lat=?, lng=?, is_launch=?, sort=? WHERE id = ?").run(name, slug, state, lat, lng, launch, sort, id);
     await auditAs(me, "city.update", "city", id, { name, slug });
     return done(`${name} saved.`);
   }
-  const nid = Number(db.prepare("INSERT INTO cities (slug, name, state, lat, lng, is_launch, sort) VALUES (?,?,?,?,?,?,?)").run(slug, name, state, lat, lng, launch, sort).lastInsertRowid);
+  const nid = Number((await db.prepare("INSERT INTO cities (slug, name, state, lat, lng, is_launch, sort) VALUES (?,?,?,?,?,?,?)").run(slug, name, state, lat, lng, launch, sort)).lastInsertRowid);
   await auditAs(me, "city.create", "city", nid, { name, slug });
   return done(`${name} added. Add its localities next.`);
 }
@@ -232,13 +232,13 @@ const rating = (fd: FormData, k: string, errors: Record<string, string>) => {
 export async function saveLocality(_p: ActionState, fd: FormData): Promise<ActionState> {
   const me = await staff("cms");
   if (!me) return NOT_ALLOWED;
-  const id = Number(fd.get("id")) || null;
-  const cityId = Number(fd.get("city_id"));
+  const id = pgInt(fd.get("id")) || null;
+  const cityId = pgInt(fd.get("city_id"));
   const name = str(fd, "name");
   const slug = slugify(str(fd, "slug") || name);
   const lat = num(fd, "lat"), lng = num(fd, "lng");
   const errors: Record<string, string> = {};
-  if (!db.prepare("SELECT 1 FROM cities WHERE id = ?").get(cityId)) return fail("Unknown city.");
+  if (!await db.prepare("SELECT 1 FROM cities WHERE id = ?").get(cityId)) return fail("Unknown city.");
   if (name.length < 2) errors.name = "Required";
   if (lat == null || Number.isNaN(lat) || lat < 6 || lat > 37) errors.lat = "6–37";
   if (lng == null || Number.isNaN(lng) || lng < 68 || lng > 98) errors.lng = "68–98";
@@ -246,16 +246,16 @@ export async function saveLocality(_p: ActionState, fd: FormData): Promise<Actio
   const description = str(fd, "description") || null;
   if (description && description.length > 2000) errors.description = "Too long";
   if (Object.keys(errors).length) return fail("Fix the highlighted fields.", errors);
-  if (db.prepare("SELECT 1 FROM localities WHERE city_id = ? AND slug = ? AND id IS NOT ?").get(cityId, slug, id)) return fail("Slug already used in this city.", { slug: "Taken" });
+  if (await db.prepare("SELECT 1 FROM localities WHERE city_id = ? AND slug = ? AND id IS DISTINCT FROM ?::int").get(cityId, slug, id)) return fail("Slug already used in this city.", { slug: "Taken" });
   const trending = bool(fd, "trending");
   if (id) {
-    db.prepare("UPDATE localities SET name=?, slug=?, lat=?, lng=?, rating=?, connectivity=?, safety=?, lifestyle=?, description=?, trending=? WHERE id = ? AND city_id = ?")
-      .run(name, slug, lat, lng, r, c, s, l, description, trending, id, cityId);
+    await db.prepare("UPDATE localities SET name=?, slug=?, lat=?, lng=?, rating=?, connectivity=?, safety=?, lifestyle=?, description=?, trending=? WHERE id = ? AND city_id = ?")
+            .run(name, slug, lat, lng, r, c, s, l, description, trending, id, cityId);
     await auditAs(me, "locality.update", "locality", id, { name, slug, trending });
     return done(`${name} saved.`);
   }
-  const nid = Number(db.prepare("INSERT INTO localities (city_id, slug, name, lat, lng, rating, connectivity, safety, lifestyle, description, trending) VALUES (?,?,?,?,?,?,?,?,?,?,?)")
-    .run(cityId, slug, name, lat, lng, r, c, s, l, description, trending).lastInsertRowid);
+  const nid = Number((await db.prepare("INSERT INTO localities (city_id, slug, name, lat, lng, rating, connectivity, safety, lifestyle, description, trending) VALUES (?,?,?,?,?,?,?,?,?,?,?)")
+          .run(cityId, slug, name, lat, lng, r, c, s, l, description, trending)).lastInsertRowid);
   await auditAs(me, "locality.create", "locality", nid, { name, slug, cityId });
   return done(`${name} added.`);
 }
@@ -263,10 +263,10 @@ export async function saveLocality(_p: ActionState, fd: FormData): Promise<Actio
 export async function toggleTrending(_p: ActionState, fd: FormData): Promise<ActionState> {
   const me = await staff("cms");
   if (!me) return NOT_ALLOWED;
-  const id = Number(fd.get("id"));
-  const l = db.prepare("SELECT name, trending FROM localities WHERE id = ?").get(id) as { name: string; trending: number } | undefined;
+  const id = pgInt(fd.get("id"));
+  const l = await db.prepare("SELECT name, trending FROM localities WHERE id = ?").get(id) as { name: string; trending: number } | undefined;
   if (!l) return fail("Not found.");
-  db.prepare("UPDATE localities SET trending = ? WHERE id = ?").run(l.trending ? 0 : 1, id);
+  await db.prepare("UPDATE localities SET trending = ? WHERE id = ?").run(l.trending ? 0 : 1, id);
   await auditAs(me, `locality.trending.${l.trending ? "off" : "on"}`, "locality", id);
   return done(`${l.name} ${l.trending ? "removed from" : "marked"} trending.`);
 }

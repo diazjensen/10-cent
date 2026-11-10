@@ -14,9 +14,9 @@ const ICON: Record<string, typeof Bell> = { lead: MessageSquare, alert: BellRing
 
 export default async function NotificationsPage() {
   const u = await requireUser("/account/notifications");
-  const rows = db.prepare("SELECT * FROM notifications WHERE user_id = ? ORDER BY created_at DESC, id DESC LIMIT 100").all(u.id) as Array<{ id: number; kind: string; title: string; body: string | null; link: string | null; read: number; created_at: string }>;
+  const rows = await db.prepare("SELECT * FROM notifications WHERE user_id = ? ORDER BY created_at DESC, id DESC LIMIT 100").all(u.id) as Array<{ id: number; kind: string; title: string; body: string | null; link: string | null; read: number; created_at: string }>;
   const unread = rows.filter((r) => !r.read).length;
-  const prefs = (db.prepare("SELECT email, sms, whatsapp, push FROM notification_prefs WHERE user_id = ?").get(u.id) as Record<string, number> | undefined) ?? { email: 1, sms: 1, whatsapp: 0, push: 1 };
+  const prefs = (await db.prepare("SELECT email, sms, whatsapp, push FROM notification_prefs WHERE user_id = ?").get(u.id) as Record<string, number> | undefined) ?? { email: 1, sms: 1, whatsapp: 0, push: 1 };
   return (
     <>
       <AccountHeading title="Notifications" sub={unread ? `${unread} unread` : "You're all caught up"}

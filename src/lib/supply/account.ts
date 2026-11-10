@@ -17,27 +17,27 @@ export type ActivePlan = {
 };
 
 /** Current active (not expired) subscription with plan details, if any. */
-export function activePlan(userId: number): ActivePlan | null {
+export async function activePlan(userId: number): Promise<ActivePlan | null> {
   return (
-    (db
-      .prepare(
-        `SELECT s.id sub_id, p.id plan_id, p.code, p.name, p.audience, p.listing_limit, p.boost, s.starts_at, s.ends_at
+    (await db
+            .prepare(
+              `SELECT s.id sub_id, p.id plan_id, p.code, p.name, p.audience, p.listing_limit, p.boost, s.starts_at, s.ends_at
          FROM subscriptions s JOIN plans p ON p.id = s.plan_id
          WHERE s.user_id = ? AND s.status = 'active' AND s.ends_at > ?
          ORDER BY p.listing_limit DESC, s.ends_at DESC LIMIT 1`
-      )
-      .get(userId, nowIso()) as ActivePlan | undefined) ?? null
+            )
+            .get(userId, nowIso()) as ActivePlan | undefined) ?? null
   );
 }
 
 export const ACTIVE_STATUSES = ["pending", "live", "paused"] as const;
 
 /** Listing quota (PRD P1): free limit or the active plan's limit, whichever is higher. */
-export function listingQuota(userId: number) {
-  const u = db.prepare("SELECT free_listing_limit FROM users WHERE id = ?").get(userId) as { free_listing_limit: number } | undefined;
-  const plan = activePlan(userId);
+export async function listingQuota(userId: number) {
+  const u = await db.prepare("SELECT free_listing_limit FROM users WHERE id = ?").get(userId) as { free_listing_limit: number } | undefined;
+  const plan = await activePlan(userId);
   const limit = Math.max(u?.free_listing_limit ?? 3, plan?.listing_limit ?? 0);
-  const used = (db.prepare("SELECT COUNT(*) n FROM listings WHERE user_id = ? AND status IN ('pending','live','paused')").get(userId) as { n: number }).n;
+  const used = (await db.prepare("SELECT COUNT(*) n FROM listings WHERE user_id = ? AND status IN ('pending','live','paused')").get(userId) as { n: number }).n;
   return { used, limit, remaining: Math.max(0, limit - used), plan };
 }
 
@@ -55,7 +55,7 @@ export async function dashboardContext(next = "/dashboard"): Promise<{ viewer: U
     const jar = await cookies();
     const asId = Number(jar.get(DASH_AS_COOKIE)?.value);
     if (asId) {
-      const subject = db.prepare("SELECT * FROM users WHERE id = ? AND role IN ('owner','agent','builder')").get(asId) as User | undefined;
+      const subject = await db.prepare("SELECT * FROM users WHERE id = ? AND role IN ('owner','agent','builder')").get(asId) as User | undefined;
       if (subject) return { viewer, subject, impersonating: true };
     }
   }
@@ -75,20 +75,20 @@ export async function actingSubject(): Promise<{ viewer: User; subjectId: number
 }
 
 /** Can this user act on a listing? Owner of the listing or an admin. */
-export function ownsListing(user: User, listingId: number) {
-  const l = db.prepare("SELECT user_id FROM listings WHERE id = ?").get(listingId) as { user_id: number } | undefined;
+export async function ownsListing(user: User, listingId: number) {
+  const l = await db.prepare("SELECT user_id FROM listings WHERE id = ?").get(listingId) as { user_id: number } | undefined;
   if (!l) return false;
   return l.user_id === user.id || user.role === "admin";
 }
 
-export function ownsProject(user: User, projectId: number) {
-  const p = db.prepare("SELECT builder_id FROM projects WHERE id = ?").get(projectId) as { builder_id: number } | undefined;
+export async function ownsProject(user: User, projectId: number) {
+  const p = await db.prepare("SELECT builder_id FROM projects WHERE id = ?").get(projectId) as { builder_id: number } | undefined;
   if (!p) return false;
   return p.builder_id === user.id || user.role === "admin";
 }
 
-export function getProfile(userId: number) {
-  return db.prepare("SELECT * FROM profiles WHERE user_id = ?").get(userId) as
+export async function getProfile(userId: number) {
+  return await db.prepare("SELECT * FROM profiles WHERE user_id = ?").get(userId) as
     | { user_id: number; company_name: string | null; rera_number: string | null; experience_years: number | null; established_year: number | null; about: string | null; city_id: number | null; website: string | null; gstin: string | null; logo_url: string | null }
     | undefined;
 }

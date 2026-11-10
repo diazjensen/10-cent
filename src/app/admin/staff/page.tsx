@@ -14,10 +14,10 @@ export const metadata: Metadata = { title: "Staff & roles" };
 
 export default async function StaffPage() {
   const me = await requireAdmin("staff");
-  const rows = db.prepare(`SELECT u.id, u.name, u.phone, u.email, u.admin_role, u.last_login_at,
+  const rows = await db.prepare(`SELECT u.id, u.name, u.phone, u.email, u.admin_role, u.last_login_at,
       (SELECT COUNT(*) FROM audit_logs a WHERE a.actor_id = u.id AND a.created_at >= ?) actions30
     FROM users u WHERE u.role = 'admin' AND u.deleted_at IS NULL ORDER BY CASE u.admin_role WHEN 'super' THEN 0 WHEN 'moderator' THEN 1 WHEN 'support' THEN 2 WHEN 'sales' THEN 3 ELSE 4 END, u.id`)
-    .all(new Date(nowMs() - 30 * 86400000).toISOString()) as { id: number; name: string | null; phone: string | null; email: string | null; admin_role: string; last_login_at: string | null; actions30: number }[];
+      .all(new Date(nowMs() - 30 * 86400000).toISOString()) as { id: number; name: string | null; phone: string | null; email: string | null; admin_role: string; last_login_at: string | null; actions30: number }[];
   const areas = Object.keys(ADMIN_PERMISSIONS);
 
   return (

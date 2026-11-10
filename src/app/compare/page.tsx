@@ -23,7 +23,7 @@ function bestIdx(nums: Array<number | null | undefined>, mode: "min" | "max") {
 export default async function ComparePage({ searchParams }: PageProps<"/compare">) {
   const sp = await searchParams;
   const ids = [...new Set(String(sp.ids ?? "").split(",").map(Number).filter((n) => Number.isInteger(n) && n > 0))].slice(0, COMPARE_MAX_SERVER);
-  const items = ids.map((id) => getListingDetail(id)).filter((l): l is ListingDetail => !!l && l.status === "live");
+  const items = (await Promise.all(ids.map((id) => getListingDetail(id)))).filter((l): l is ListingDetail => !!l && l.status === "live");
   const liveIds = items.map((l) => l.id);
 
   if (items.length === 0)
@@ -40,11 +40,11 @@ export default async function ComparePage({ searchParams }: PageProps<"/compare"
       </Container>
     );
 
-  const extras = items.map((l) => ({
-    cover: getMedia(l.id).find((m) => m.kind === "photo")?.url ?? null,
-    amenities: getAmenities(l.id),
+  const extras = await Promise.all(items.map(async (l) => ({
+    cover: (await getMedia(l.id)).find((m) => m.kind === "photo")?.url ?? null,
+    amenities: await getAmenities(l.id),
     area: l.carpet_area ?? l.super_area ?? l.builtup_area ?? l.plot_area,
-  }));
+  })));
   const sameTx = items.every((l) => l.transaction_type === items[0].transaction_type);
   const anySale = items.some((l) => l.transaction_type === "sell");
   const anyRent = items.some((l) => l.transaction_type !== "sell");

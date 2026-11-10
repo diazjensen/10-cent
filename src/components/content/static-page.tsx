@@ -15,24 +15,28 @@ const NAV = [
   { slug: "privacy", label: "Privacy policy" },
 ];
 
-function getPage(slug: string) {
-  return db.prepare("SELECT * FROM static_pages WHERE slug = ?").get(slug) as Page | undefined;
+const CORE_PAGES = new Set(NAV.map((n) => n.slug));
+/** Public URL of a CMS page: the four core pages have their own routes, everything else lives under /info. */
+export const staticPagePath = (slug: string) => (CORE_PAGES.has(slug) ? `/${slug}` : `/info/${slug}`);
+
+async function getPage(slug: string) {
+  return await db.prepare("SELECT * FROM static_pages WHERE slug = ?").get(slug) as Page | undefined;
 }
 
-export function staticPageMetadata(slug: string): Metadata {
-  const p = getPage(slug);
+export async function staticPageMetadata(slug: string): Promise<Metadata> {
+  const p = await getPage(slug);
   if (!p) return { title: "Page not found" };
   const first = parseBlocks(p.body).find((b) => b.kind === "p");
   return {
     title: p.title,
     description: first ? stripInline(first.lines.join(" ")).slice(0, 160) : undefined,
-    alternates: { canonical: `/${slug}` },
+    alternates: { canonical: staticPagePath(slug) },
   };
 }
 
 /** Renders a CMS-managed static page (about, terms, privacy, posting policy). */
-export function StaticPage({ slug }: { slug: string }) {
-  const p = getPage(slug);
+export async function StaticPage({ slug }: { slug: string }) {
+  const p = await getPage(slug);
   if (!p) notFound();
   const toc = headings(p.body);
   return (

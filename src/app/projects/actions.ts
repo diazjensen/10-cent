@@ -1,6 +1,6 @@
 "use server";
 
-import { deliverLeadWebhook } from "@/lib/supply/webhook";
+import { scheduleLeadWebhook } from "@/lib/supply/webhook";
 
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
@@ -38,31 +38,38 @@ function issues(err: z.ZodError) {
   return fe;
 }
 
-function loadProject(id: number) {
-  return db.prepare("SELECT id, slug, name, builder_id, brochure_url FROM projects WHERE id = ? AND approved = 1").get(id) as
+async function loadProject(id: number) {
+  return await db.prepare("SELECT id, slug, name, builder_id, brochure_url FROM projects WHERE id = ? AND approved = 1").get(id) as
     | { id: number; slug: string; name: string; builder_id: number; brochure_url: string | null }
     | undefined;
 }
 
 /** Creates (or reuses today's) lead for a project and notifies the builder. Returns the lead id and whether it was new. */
-function upsertLead(p: { id: number; name: string; builder_id: number; slug: string }, seekerId: number, channel: Channel, d: { name: string; phone: string; email: string | null; message?: string }) {
+async function upsertLead(p: { id: number; name: string; builder_id: number; slug: string }, seekerId: number, channel: Channel, d: { name: string; phone: string; email: string | null; message?: string }) {
+  // Serialise concurrent requests from the same seeker for the same project/channel so the same-day dedupe holds.
+  const res = await db.transaction(async () => {
+    await db.prepare("SELECT pg_advisory_xact_lock(hashtext(?))").get(`lead:${seekerId}:${p.id}:${channel}`);
+    return await upsertLeadLocked(p, seekerId, channel, d);
+  })();
+  return res;
+}
+
+async function upsertLeadLocked(p: { id: number; name: string; builder_id: number; slug: string }, seekerId: number, channel: Channel, d: { name: string; phone: string; email: string | null; message?: string }) {
   const today = new Date().toISOString().slice(0, 10);
-  const dup = db.prepare("SELECT id FROM leads WHERE seeker_id = ? AND project_id = ? AND channel = ? AND substr(created_at,1,10) = ?").get(seekerId, p.id, channel, today) as { id: number } | undefined;
+  const dup = await db.prepare("SELECT id FROM leads WHERE seeker_id = ? AND project_id = ? AND channel = ? AND substr(created_at,1,10) = ?").get(seekerId, p.id, channel, today) as { id: number } | undefined;
   if (dup) return { id: dup.id, fresh: false };
-  const info = db.prepare("INSERT INTO leads (project_id, seeker_id, poster_id, name, phone, email, message, channel, consent) VALUES (?,?,?,?,?,?,?,?,1)")
-    .run(p.id, seekerId, p.builder_id, d.name, d.phone, d.email, d.message || null, channel);
-  const leadId = Number(info.lastInsertRowid);
-  void deliverLeadWebhook(leadId);
-  return { id: leadId, fresh: true };
+  const info = await db.prepare("INSERT INTO leads (project_id, seeker_id, poster_id, name, phone, email, message, channel, consent) VALUES (?,?,?,?,?,?,?,?,1)")
+      .run(p.id, seekerId, p.builder_id, d.name, d.phone, d.email, d.message || null, channel);
+  return { id: Number(info.lastInsertRowid), fresh: true };
 }
 
 async function guard(projectId: number) {
-  const p = loadProject(projectId);
+  const p = await loadProject(projectId);
   if (!p) return { error: "This project is no longer available." } as const;
   const u = await getUser();
   if (!u) redirect(`/login?next=${encodeURIComponent(`/projects/${p.slug}#enquire`)}`);
   if (u.id === p.builder_id) return { error: "This is your own project." } as const;
-  if (!rateLimit(`plead:${u.id}`, 20, 3600).ok) return { error: "Too many requests. Please try again in a while." } as const;
+  if (!(await rateLimit(`plead:${u.id}`, 20, 3600)).ok) return { error: "Too many requests. Please try again in a while." } as const;
   return { p, u } as const;
 }
 
@@ -73,9 +80,10 @@ export async function projectEnquiry(projectId: number, _prev: LeadState, form: 
   if (!parsed.success) return { fieldErrors: issues(parsed.error) };
   const d = parsed.data;
   if (!d.message || d.message.length < 5) return { fieldErrors: { message: "Tell the builder what you'd like to know" } };
-  const r = upsertLead(g.p, g.u.id, "enquiry", d);
+  const r = await upsertLead(g.p, g.u.id, "enquiry", d);
   if (r.fresh) {
-    notify(g.p.builder_id, { kind: "lead", title: `New enquiry for ${g.p.name}`, body: `${d.name} (${d.phone}): ${d.message.slice(0, 140)}`, link: "/dashboard/responses" }, ["sms", "email"]);
+    scheduleLeadWebhook(r.id);
+    await notify(g.p.builder_id, { kind: "lead", title: `New enquiry for ${g.p.name}`, body: `${d.name} (${d.phone}): ${d.message.slice(0, 140)}`, link: "/dashboard/responses" }, ["sms", "email"]);
   }
   revalidatePath("/account/contacted");
   return { ok: true, message: r.fresh ? `Sent. ${g.p.name}'s sales team will call you on ${d.phone}.` : "You already sent an enquiry for this project today. The builder has your details." };
@@ -86,9 +94,10 @@ export async function projectBrochure(projectId: number, _prev: LeadState, form:
   if ("error" in g) return { error: g.error };
   const parsed = base.safeParse({ ...Object.fromEntries(form), message: undefined });
   if (!parsed.success) return { fieldErrors: issues(parsed.error) };
-  const r = upsertLead(g.p, g.u.id, "brochure", { ...parsed.data, message: "Downloaded the brochure" });
+  const r = await upsertLead(g.p, g.u.id, "brochure", { ...parsed.data, message: "Downloaded the brochure" });
   if (r.fresh) {
-    notify(g.p.builder_id, { kind: "lead", title: `Brochure downloaded: ${g.p.name}`, body: `${parsed.data.name} (${parsed.data.phone}) downloaded the brochure.`, link: "/dashboard/responses" }, ["sms", "email"]);
+    scheduleLeadWebhook(r.id);
+    await notify(g.p.builder_id, { kind: "lead", title: `Brochure downloaded: ${g.p.name}`, body: `${parsed.data.name} (${parsed.data.phone}) downloaded the brochure.`, link: "/dashboard/responses" }, ["sms", "email"]);
   }
   revalidatePath("/account/contacted");
   const safe = g.p.brochure_url && /^(\/|https?:\/\/)/.test(g.p.brochure_url) ? g.p.brochure_url : `/projects/${g.p.slug}/brochure`;
@@ -112,16 +121,21 @@ export async function projectVisit(projectId: number, _prev: LeadState, form: Fo
   if (!(when.getTime() > min && when.getTime() < max)) return { fieldErrors: { date: "Choose a time at least 2 hours from now and within 60 days" } };
   const d = parsed.data;
   const msg = `Site visit on ${formatDate(when.toISOString(), { weekday: "short", day: "numeric", month: "short" })} at ${slot} IST${d.message ? `. ${d.message}` : ""}`;
-  const r = upsertLead(g.p, g.u.id, "visit", { ...d, message: msg });
-  const existing = db.prepare("SELECT id FROM visits WHERE lead_id = ?").get(r.id) as { id: number } | undefined;
-  if (existing) {
-    db.prepare("UPDATE visits SET scheduled_at = ?, status = 'requested' WHERE id = ?").run(when.toISOString(), existing.id);
-    db.prepare("UPDATE leads SET message = ? WHERE id = ?").run(msg, r.id);
-  } else {
-    db.prepare("INSERT INTO visits (lead_id, project_id, seeker_id, scheduled_at, status, created_at) VALUES (?,?,?,?, 'requested', ?)").run(r.id, g.p.id, g.u.id, when.toISOString(), nowIso());
-  }
-  notify(g.p.builder_id, { kind: "visit", title: `${existing ? "Visit rescheduled" : "Site visit request"}: ${g.p.name}`, body: `${d.name} (${d.phone}) · ${msg}`, link: "/dashboard/responses" }, ["sms", "email"]);
-  notify(g.u.id, { kind: "visit", title: `Visit requested at ${g.p.name}`, body: `${formatDate(when.toISOString(), { weekday: "short", day: "numeric", month: "short" })}, ${slot} IST. The builder will call to confirm.`, link: "/account/contacted" });
+  const { r, existing } = await db.transaction(async () => {
+    await db.prepare("SELECT pg_advisory_xact_lock(hashtext(?))").get(`visit:${g.u.id}:${g.p.id}`);
+    const r = await upsertLead(g.p, g.u.id, "visit", { ...d, message: msg });
+    const existing = await db.prepare("SELECT id FROM visits WHERE lead_id = ?").get(r.id) as { id: number } | undefined;
+    if (existing) {
+      await db.prepare("UPDATE visits SET scheduled_at = ?, status = 'requested' WHERE id = ?").run(when.toISOString(), existing.id);
+      await db.prepare("UPDATE leads SET message = ? WHERE id = ?").run(msg, r.id);
+    } else {
+      await db.prepare("INSERT INTO visits (lead_id, project_id, seeker_id, scheduled_at, status, created_at) VALUES (?,?,?,?, 'requested', ?)").run(r.id, g.p.id, g.u.id, when.toISOString(), nowIso());
+    }
+    return { r, existing };
+  })();
+  if (r.fresh) scheduleLeadWebhook(r.id);
+  await notify(g.p.builder_id, { kind: "visit", title: `${existing ? "Visit rescheduled" : "Site visit request"}: ${g.p.name}`, body: `${d.name} (${d.phone}) · ${msg}`, link: "/dashboard/responses" }, ["sms", "email"]);
+  await notify(g.u.id, { kind: "visit", title: `Visit requested at ${g.p.name}`, body: `${formatDate(when.toISOString(), { weekday: "short", day: "numeric", month: "short" })}, ${slot} IST. The builder will call to confirm.`, link: "/account/contacted" });
   revalidatePath("/account/contacted");
   return { ok: true, message: existing ? "Your visit request for today was updated with the new time." : "Visit requested. The builder will call to confirm the slot." };
 }

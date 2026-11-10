@@ -8,7 +8,7 @@ import { stopViewAsAction } from "./actions";
 export default async function DashboardLayout({ children }: LayoutProps<"/dashboard">) {
   const { viewer, subject, impersonating } = await dashboardContext();
   const role = subject.role;
-  const newLeads = (db.prepare("SELECT COUNT(*) n FROM leads WHERE poster_id = ? AND status = 'new'").get(subject.id) as { n: number }).n;
+  const newLeads = (await db.prepare("SELECT COUNT(*) n FROM leads WHERE poster_id = ? AND status = 'new'").get(subject.id) as { n: number }).n;
   const items: NavItem[] = [
     { href: "/dashboard", label: "Overview" },
     { href: "/dashboard/listings", label: "My listings" },

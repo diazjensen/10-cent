@@ -12,14 +12,14 @@ const CAT_LABEL: Record<string, string> = Object.fromEntries(ARTICLE_CATEGORIES.
 
 type Article = { id: number; slug: string; title: string; category: string; author_name: string; excerpt: string | null; body: string; cover_url: string | null; city_id: number | null; city: string | null; city_slug: string | null; seo_title: string | null; seo_description: string | null; status: string; published_at: string | null; updated_at: string };
 
-function getArticle(slug: string) {
-  return db.prepare("SELECT a.*, c.name city, c.slug city_slug FROM articles a LEFT JOIN cities c ON c.id = a.city_id WHERE a.slug = ?").get(slug) as Article | undefined;
+async function getArticle(slug: string) {
+  return await db.prepare("SELECT a.*, c.name city, c.slug city_slug FROM articles a LEFT JOIN cities c ON c.id = a.city_id WHERE a.slug = ?").get(slug) as Article | undefined;
 }
 const isPublic = (a: Article) => a.status === "published" && !!a.published_at && a.published_at <= new Date().toISOString();
 
 export async function generateMetadata({ params }: PageProps<"/news/[slug]">): Promise<Metadata> {
   const { slug } = await params;
-  const a = getArticle(slug);
+  const a = await getArticle(slug);
   if (!a || !isPublic(a)) return { title: "Article not found", robots: { index: false } };
   return {
     title: a.seo_title || a.title,
@@ -31,7 +31,7 @@ export async function generateMetadata({ params }: PageProps<"/news/[slug]">): P
 
 export default async function ArticlePage({ params }: PageProps<"/news/[slug]">) {
   const { slug } = await params;
-  const a = getArticle(slug);
+  const a = await getArticle(slug);
   if (!a) notFound();
   let preview = false;
   if (!isPublic(a)) {
@@ -41,7 +41,7 @@ export default async function ArticlePage({ params }: PageProps<"/news/[slug]">)
   }
   const toc = headings(a.body);
   const words = a.body.split(/\s+/).length;
-  const related = db.prepare(`SELECT slug, title, category, cover_url, published_at FROM articles WHERE status = 'published' AND published_at <= ? AND id <> ?
+  const related = await db.prepare(`SELECT slug, title, category, cover_url, published_at FROM articles WHERE status = 'published' AND published_at <= ? AND id <> ?
     ORDER BY (category = ?) DESC, (city_id IS NOT NULL AND city_id = ?) DESC, published_at DESC LIMIT 3`).all(new Date().toISOString(), a.id, a.category, a.city_id ?? -1) as Array<{ slug: string; title: string; category: string; cover_url: string | null; published_at: string }>;
   const jsonLd = { "@context": "https://schema.org", "@type": "Article", headline: a.title, datePublished: a.published_at, dateModified: a.updated_at, author: { "@type": "Person", name: a.author_name }, publisher: { "@type": "Organization", name: "10cent" }, image: a.cover_url ?? undefined, description: a.excerpt ?? undefined };
 

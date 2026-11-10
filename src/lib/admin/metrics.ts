@@ -25,6 +25,6 @@ export function lastNDays(n: number) {
 
 export const shortDay = (d: string) => new Date(d + "T00:00:00Z").toLocaleDateString("en-IN", { day: "numeric", month: "short", timeZone: "UTC" });
 
-export function count(sql: string, ...args: unknown[]) {
-  return (db.prepare(sql).get(...args) as { n: number | null }).n ?? 0;
+export async function count(sql: string, ...args: unknown[]) {
+  return (await db.prepare(sql).get(...args) as { n: number | null }).n ?? 0;
 }

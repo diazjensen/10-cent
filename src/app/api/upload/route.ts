@@ -9,7 +9,7 @@ import { saveUpload } from "@/lib/uploads";
 export async function POST(req: Request) {
   const user = await getUser();
   if (!user) return Response.json({ ok: false, error: "Log in to upload files." }, { status: 401 });
-  const rl = rateLimit(`upload:${user.id}`, 120, 3600);
+  const rl = await rateLimit(`upload:${user.id}`, 120, 3600);
   if (!rl.ok) return Response.json({ ok: false, error: "Too many uploads. Try again in a while." }, { status: 429 });
   let form: FormData;
   try {

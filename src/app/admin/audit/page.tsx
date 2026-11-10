@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { requireAdmin } from "@/lib/auth";
+import { pgInt, pageNum } from "@/lib/admin/guard";
 import { db } from "@/lib/db";
 import { AdminHeader, FilterBar, FInput, FSelect, Table, Th, Td, EmptyRow, Pager, qs } from "@/components/admin/ui";
 
@@ -20,19 +21,19 @@ export default async function AuditPage({ searchParams }: PageProps<"/admin/audi
   const sp = await searchParams;
   const s = (k: string) => (typeof sp[k] === "string" ? (sp[k] as string).trim() : "");
   const actor = s("actor"), action = s("action"), entity = s("entity"), eid = s("eid"), from = s("from"), to = s("to");
-  const page = Math.max(1, Number(s("page")) || 1);
+  const page = pageNum(s("page"));
   const where = ["1=1"]; const args: unknown[] = [];
   if (actor === "system") where.push("a.actor_id IS NULL");
-  else if (/^\d+$/.test(actor)) { where.push("a.actor_id = ?"); args.push(Number(actor)); }
+  else if (/^\d+$/.test(actor)) { where.push("a.actor_id = ?"); args.push(pgInt(actor)); }
   if (action) { where.push("a.action LIKE ?"); args.push(`${action}%`); }
   if (entity) { where.push("a.entity = ?"); args.push(entity); }
-  if (eid) { where.push("a.entity_id = ?"); args.push(Number(eid)); }
+  if (eid) { where.push("a.entity_id = ?"); args.push(pgInt(eid)); }
   if (from) { where.push("substr(a.created_at,1,10) >= ?"); args.push(from); }
   if (to) { where.push("substr(a.created_at,1,10) <= ?"); args.push(to); }
-  const total = (db.prepare(`SELECT COUNT(*) n FROM audit_logs a WHERE ${where.join(" AND ")}`).get(...args) as { n: number }).n;
-  const rows = db.prepare(`SELECT a.*, u.name actor_name, u.admin_role FROM audit_logs a LEFT JOIN users u ON u.id = a.actor_id WHERE ${where.join(" AND ")} ORDER BY a.id DESC LIMIT ${PER} OFFSET ${(page - 1) * PER}`).all(...args) as { id: number; actor_id: number | null; actor_name: string | null; admin_role: string | null; action: string; entity: string; entity_id: number | null; details: string | null; ip: string | null; created_at: string }[];
-  const actors = db.prepare("SELECT DISTINCT u.id, u.name, u.admin_role FROM audit_logs a JOIN users u ON u.id = a.actor_id ORDER BY u.name").all() as { id: number; name: string | null; admin_role: string | null }[];
-  const entities = (db.prepare("SELECT DISTINCT entity FROM audit_logs ORDER BY entity").all() as { entity: string }[]).map((e) => e.entity);
+  const total = (await db.prepare(`SELECT COUNT(*) n FROM audit_logs a WHERE ${where.join(" AND ")}`).get(...args) as { n: number }).n;
+  const rows = await db.prepare(`SELECT a.*, u.name actor_name, u.admin_role FROM audit_logs a LEFT JOIN users u ON u.id = a.actor_id WHERE ${where.join(" AND ")} ORDER BY a.id DESC LIMIT ${PER} OFFSET ${(page - 1) * PER}`).all(...args) as { id: number; actor_id: number | null; actor_name: string | null; admin_role: string | null; action: string; entity: string; entity_id: number | null; details: string | null; ip: string | null; created_at: string }[];
+  const actors = await db.prepare("SELECT DISTINCT u.id, u.name, u.admin_role FROM audit_logs a JOIN users u ON u.id = a.actor_id ORDER BY u.name").all() as { id: number; name: string | null; admin_role: string | null }[];
+  const entities = (await db.prepare("SELECT DISTINCT entity FROM audit_logs ORDER BY entity").all() as { entity: string }[]).map((e) => e.entity);
   const params = { actor, action, entity, eid, from, to };
 
   return (

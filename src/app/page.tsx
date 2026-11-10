@@ -13,15 +13,15 @@ export default async function Home() {
   const jar = await cookies();
   const user = await getUser();
   const citySlug = jar.get("tc_city")?.value ?? null;
-  const city = citySlug ? (db.prepare("SELECT id, slug, name FROM cities WHERE slug = ?").get(citySlug) as { id: number; slug: string; name: string } | undefined) : undefined;
+  const city = citySlug ? (await db.prepare("SELECT id, slug, name FROM cities WHERE slug = ?").get(citySlug) as { id: number; slug: string; name: string } | undefined) : undefined;
   const cityWhere = city ? "AND l.city_id = ?" : "";
   const cityArgs = city ? [city.id] : [];
 
-  const featured = db.prepare(`SELECT ${CARD_SELECT} ${CARD_FROM} WHERE l.status = 'live' AND (l.featured = 1 OR l.premium = 1) ${cityWhere} ORDER BY l.premium DESC, l.published_at DESC LIMIT 8`).all(...cityArgs) as Card[];
-  const fresh = db.prepare(`SELECT ${CARD_SELECT} ${CARD_FROM} WHERE l.status = 'live' AND l.verified = 1 ${cityWhere} ORDER BY l.published_at DESC LIMIT 4`).all(...cityArgs) as Card[];
-  const savedIds = new Set(user ? (db.prepare("SELECT listing_id FROM shortlists WHERE user_id = ?").all(user.id) as { listing_id: number }[]).map((r) => r.listing_id) : []);
+  const featured = await db.prepare(`SELECT ${CARD_SELECT} ${CARD_FROM} WHERE l.status = 'live' AND (l.featured = 1 OR l.premium = 1) ${cityWhere} ORDER BY l.premium DESC, l.published_at DESC LIMIT 8`).all(...cityArgs) as Card[];
+  const fresh = await db.prepare(`SELECT ${CARD_SELECT} ${CARD_FROM} WHERE l.status = 'live' AND l.verified = 1 ${cityWhere} ORDER BY l.published_at DESC LIMIT 4`).all(...cityArgs) as Card[];
+  const savedIds = new Set(user ? (await db.prepare("SELECT listing_id FROM shortlists WHERE user_id = ?").all(user.id) as { listing_id: number }[]).map((r) => r.listing_id) : []);
 
-  const trending = db.prepare(`
+  const trending = await db.prepare(`
     SELECT lo.id, lo.name, lo.slug, c.slug city_slug, c.name city,
       (SELECT avg_price_sqft FROM price_trends t WHERE t.locality_id = lo.id ORDER BY month DESC LIMIT 1) psf,
       (SELECT avg_price_sqft FROM price_trends t WHERE t.locality_id = lo.id ORDER BY month DESC LIMIT 1 OFFSET 12) psf_ly,
@@ -29,23 +29,23 @@ export default async function Home() {
     FROM localities lo JOIN cities c ON c.id = lo.city_id
     WHERE ${city ? "lo.city_id = ?" : "lo.trending = 1"} ORDER BY n DESC LIMIT 8`).all(...cityArgs) as Array<{ id: number; name: string; slug: string; city_slug: string; city: string; psf: number; psf_ly: number; n: number }>;
 
-  const projects = db.prepare(`
+  const projects = await db.prepare(`
     SELECT p.*, lo.name loc, c.name city, pr.company_name builder,
       (SELECT url FROM project_media m WHERE m.project_id = p.id ORDER BY sort LIMIT 1) cover,
       (SELECT GROUP_CONCAT(DISTINCT bhk) FROM project_unit_types u WHERE u.project_id = p.id) bhks
     FROM projects p JOIN cities c ON c.id = p.city_id LEFT JOIN localities lo ON lo.id = p.locality_id LEFT JOIN profiles pr ON pr.user_id = p.builder_id
     WHERE p.approved = 1 ${city ? "AND p.city_id = ?" : ""} ORDER BY p.featured DESC, p.sponsored DESC, p.created_at DESC LIMIT 3`).all(...cityArgs) as Array<Record<string, string | number | null>>;
 
-  const builders = db.prepare(`
+  const builders = await db.prepare(`
     SELECT u.id, pr.company_name, pr.established_year, (SELECT COUNT(*) FROM projects p WHERE p.builder_id = u.id) projects
     FROM users u JOIN profiles pr ON pr.user_id = u.id WHERE u.role = 'builder' ORDER BY projects DESC, pr.rating DESC LIMIT 6`).all() as Array<{ id: number; company_name: string; established_year: number; projects: number }>;
 
-  const banner = db.prepare(`SELECT * FROM banners WHERE placement = 'home_top' AND active = 1 AND (starts_at IS NULL OR starts_at <= ?) AND (ends_at IS NULL OR ends_at >= ?) ORDER BY id DESC LIMIT 1`).get(new Date().toISOString(), new Date().toISOString()) as { id: number; title: string; subtitle: string; link: string } | undefined;
-  if (banner) db.prepare("UPDATE banners SET impressions = impressions + 1 WHERE id = ?").run(banner.id);
+  const banner = await db.prepare(`SELECT * FROM banners WHERE placement = 'home_top' AND active = 1 AND (starts_at IS NULL OR starts_at <= ?) AND (ends_at IS NULL OR ends_at >= ?) ORDER BY id DESC LIMIT 1`).get(new Date().toISOString(), new Date().toISOString()) as { id: number; title: string; subtitle: string; link: string } | undefined;
+  if (banner) await db.prepare("UPDATE banners SET impressions = impressions + 1 WHERE id = ?").run(banner.id);
 
-  const articles = db.prepare("SELECT slug, title, category, excerpt, cover_url, published_at FROM articles WHERE status = 'published' ORDER BY published_at DESC LIMIT 3").all() as Array<{ slug: string; title: string; category: string; excerpt: string; cover_url: string; published_at: string }>;
-  const stats = db.prepare("SELECT COUNT(*) live, SUM(verified) verified, COUNT(DISTINCT city_id) cities FROM listings WHERE status = 'live'").get() as { live: number; verified: number; cities: number };
-  const ownerCount = (db.prepare("SELECT COUNT(*) n FROM listings WHERE status = 'live' AND posted_by_type = 'owner'").get() as { n: number }).n;
+  const articles = await db.prepare("SELECT slug, title, category, excerpt, cover_url, published_at FROM articles WHERE status = 'published' ORDER BY published_at DESC LIMIT 3").all() as Array<{ slug: string; title: string; category: string; excerpt: string; cover_url: string; published_at: string }>;
+  const stats = await db.prepare("SELECT COUNT(*) live, SUM(verified) verified, COUNT(DISTINCT city_id) cities FROM listings WHERE status = 'live'").get() as { live: number; verified: number; cities: number };
+  const ownerCount = (await db.prepare("SELECT COUNT(*) n FROM listings WHERE status = 'live' AND posted_by_type = 'owner'").get() as { n: number }).n;
 
   return (
     <>

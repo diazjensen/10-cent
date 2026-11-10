@@ -18,28 +18,28 @@ export default async function AdminHome({ searchParams }: PageProps<"/admin">) {
   const { from, to } = lastNDays(30);
   const since7 = addDays(-7), since30 = addDays(-30);
 
-  const live = count("SELECT COUNT(*) n FROM listings WHERE status = 'live'");
-  const pending = count("SELECT COUNT(*) n FROM listings WHERE status = 'pending'");
-  const oldest = db.prepare("SELECT created_at FROM listings WHERE status = 'pending' ORDER BY created_at LIMIT 1").get() as { created_at: string } | undefined;
+  const live = await count("SELECT COUNT(*) n FROM listings WHERE status = 'live'");
+  const pending = await count("SELECT COUNT(*) n FROM listings WHERE status = 'pending'");
+  const oldest = await db.prepare("SELECT created_at FROM listings WHERE status = 'pending' ORDER BY created_at LIMIT 1").get() as { created_at: string } | undefined;
   const oldestH = oldest ? (nowMs() - new Date(oldest.created_at).getTime()) / 3600000 : 0;
-  const overSla = count("SELECT COUNT(*) n FROM listings WHERE status = 'pending' AND created_at < ?", addDays(-SLA_HOURS / 24));
-  const openReports = count("SELECT COUNT(*) n FROM reports WHERE status = 'open'");
-  const oldestReport = db.prepare("SELECT created_at FROM reports WHERE status = 'open' ORDER BY created_at LIMIT 1").get() as { created_at: string } | undefined;
-  const verif = count("SELECT COUNT(*) n FROM listings WHERE verification_requested_at IS NOT NULL AND verified = 0 AND status IN ('live','pending')");
-  const users7 = count("SELECT COUNT(*) n FROM users WHERE created_at >= ? AND deleted_at IS NULL", since7);
-  const leads7 = count("SELECT COUNT(*) n FROM leads WHERE created_at >= ?", since7);
-  const leadsPrev7 = count("SELECT COUNT(*) n FROM leads WHERE created_at >= ? AND created_at < ?", addDays(-14), since7);
-  const rev30 = count("SELECT SUM(total_paise) n FROM orders WHERE status = 'paid' AND paid_at >= ?", since30);
-  const orders30 = count("SELECT COUNT(*) n FROM orders WHERE status = 'paid' AND paid_at >= ?", since30);
-  const queued = count("SELECT COUNT(*) n FROM outbox WHERE status = 'queued'");
+  const overSla = await count("SELECT COUNT(*) n FROM listings WHERE status = 'pending' AND created_at < ?", addDays(-SLA_HOURS / 24));
+  const openReports = await count("SELECT COUNT(*) n FROM reports WHERE status = 'open'");
+  const oldestReport = await db.prepare("SELECT created_at FROM reports WHERE status = 'open' ORDER BY created_at LIMIT 1").get() as { created_at: string } | undefined;
+  const verif = await count("SELECT COUNT(*) n FROM listings WHERE verification_requested_at IS NOT NULL AND verified = 0 AND status IN ('live','pending')");
+  const users7 = await count("SELECT COUNT(*) n FROM users WHERE created_at >= ? AND deleted_at IS NULL", since7);
+  const leads7 = await count("SELECT COUNT(*) n FROM leads WHERE created_at >= ?", since7);
+  const leadsPrev7 = await count("SELECT COUNT(*) n FROM leads WHERE created_at >= ? AND created_at < ?", addDays(-14), since7);
+  const rev30 = await count("SELECT SUM(total_paise) n FROM orders WHERE status = 'paid' AND paid_at >= ?", since30);
+  const orders30 = await count("SELECT COUNT(*) n FROM orders WHERE status = 'paid' AND paid_at >= ?", since30);
+  const queued = await count("SELECT COUNT(*) n FROM outbox WHERE status = 'queued'");
 
-  const listingsSeries = fillDays(db.prepare("SELECT substr(created_at,1,10) day, COUNT(*) v FROM listings WHERE substr(created_at,1,10) >= ? GROUP BY day").all(from) as Array<{ day: string; v: number }>, from, to);
-  const leadsSeries = fillDays(db.prepare("SELECT substr(created_at,1,10) day, COUNT(*) v FROM leads WHERE substr(created_at,1,10) >= ? GROUP BY day").all(from) as Array<{ day: string; v: number }>, from, to);
-  const revSeries = fillDays(db.prepare("SELECT substr(paid_at,1,10) day, SUM(total_paise) v FROM orders WHERE status = 'paid' AND substr(paid_at,1,10) >= ? GROUP BY day").all(from) as Array<{ day: string; v: number }>, from, to);
-  const viewsSeries = fillDays(db.prepare("SELECT day, SUM(views) v FROM listing_stats WHERE day >= ? GROUP BY day").all(from) as Array<{ day: string; v: number }>, from, to);
+  const listingsSeries = fillDays(await db.prepare("SELECT substr(created_at,1,10) AS day, COUNT(*) v FROM listings WHERE substr(created_at,1,10) >= ? GROUP BY day").all(from) as Array<{ day: string; v: number }>, from, to);
+  const leadsSeries = fillDays(await db.prepare("SELECT substr(created_at,1,10) AS day, COUNT(*) v FROM leads WHERE substr(created_at,1,10) >= ? GROUP BY day").all(from) as Array<{ day: string; v: number }>, from, to);
+  const revSeries = fillDays(await db.prepare("SELECT substr(paid_at,1,10) AS day, SUM(total_paise) v FROM orders WHERE status = 'paid' AND substr(paid_at,1,10) >= ? GROUP BY day").all(from) as Array<{ day: string; v: number }>, from, to);
+  const viewsSeries = fillDays(await db.prepare("SELECT day, SUM(views) v FROM listing_stats WHERE day >= ? GROUP BY day").all(from) as Array<{ day: string; v: number }>, from, to);
 
   const recent = can(user, "audit")
-    ? (db.prepare("SELECT a.action, a.entity, a.entity_id, a.created_at, u.name FROM audit_logs a LEFT JOIN users u ON u.id = a.actor_id ORDER BY a.id DESC LIMIT 8").all() as Array<{ action: string; entity: string; entity_id: number | null; created_at: string; name: string | null }>)
+    ? (await db.prepare("SELECT a.action, a.entity, a.entity_id, a.created_at, u.name FROM audit_logs a LEFT JOIN users u ON u.id = a.actor_id ORDER BY a.id DESC LIMIT 8").all() as Array<{ action: string; entity: string; entity_id: number | null; created_at: string; name: string | null }>)
     : [];
 
   const allow = (key: string) => can(user, NAV_AREAS[key]);

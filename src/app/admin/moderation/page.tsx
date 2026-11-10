@@ -22,10 +22,10 @@ export default async function ModerationQueue({ searchParams }: PageProps<"/admi
   const args: unknown[] = [];
   if (city) { where.push("c.slug = ?"); args.push(city); }
   if (flagged) where.push("(l.auto_flags LIKE '%\"duplicate\":true%' OR l.auto_flags LIKE '%\"priceOutlier\":true%' OR l.auto_flags LIKE '%\"imagesOk\":false%')");
-  const rows = db.prepare(`${ADMIN_LISTING_SELECT} WHERE ${where.join(" AND ")} ORDER BY l.created_at ASC LIMIT 50`).all(...args) as AdminListing[];
-  const total = (db.prepare("SELECT COUNT(*) n FROM listings WHERE status = 'pending'").get() as { n: number }).n;
-  const over = (db.prepare("SELECT COUNT(*) n FROM listings WHERE status = 'pending' AND created_at < ?").get(addDays(-SLA_HOURS / 24)) as { n: number }).n;
-  const today = (db.prepare("SELECT COUNT(*) n FROM moderation_logs WHERE action IN ('approved','rejected') AND created_at >= ?").get(new Date().toISOString().slice(0, 10)) as { n: number }).n;
+  const rows = await db.prepare(`${ADMIN_LISTING_SELECT} WHERE ${where.join(" AND ")} ORDER BY l.created_at ASC LIMIT 50`).all(...args) as AdminListing[];
+  const total = (await db.prepare("SELECT COUNT(*) n FROM listings WHERE status = 'pending'").get() as { n: number }).n;
+  const over = (await db.prepare("SELECT COUNT(*) n FROM listings WHERE status = 'pending' AND created_at < ?").get(addDays(-SLA_HOURS / 24)) as { n: number }).n;
+  const today = (await db.prepare("SELECT COUNT(*) n FROM moderation_logs WHERE action IN ('approved','rejected') AND created_at >= ?").get(new Date().toISOString().slice(0, 10)) as { n: number }).n;
 
   return (
     <div>
@@ -45,7 +45,7 @@ export default async function ModerationQueue({ searchParams }: PageProps<"/admi
       <FilterBar action="/admin/moderation" reset={!!(city || flagged)}>
         <FSelect label="City" name="city" defaultValue={city}>
           <option value="">All cities</option>
-          {getCities().map((c) => <option key={c.slug} value={c.slug}>{c.name}</option>)}
+          {(await getCities()).map((c) => <option key={c.slug} value={c.slug}>{c.name}</option>)}
         </FSelect>
         <FSelect label="Show" name="flagged" defaultValue={flagged ? "1" : ""}>
           <option value="">Everything</option>

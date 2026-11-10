@@ -16,7 +16,7 @@ export const metadata: Metadata = { title: "My shortlist", robots: { index: fals
 
 export default async function ShortlistPage() {
   const u = await requireUser("/account/shortlist");
-  const rows = db.prepare(`SELECT ${CARD_SELECT}, s.created_at saved_at ${CARD_FROM} JOIN shortlists s ON s.listing_id = l.id AND s.user_id = ? ORDER BY s.created_at DESC`).all(u.id) as Array<Card & { saved_at: string }>;
+  const rows = await db.prepare(`SELECT ${CARD_SELECT}, s.created_at saved_at ${CARD_FROM} JOIN shortlists s ON s.listing_id = l.id AND s.user_id = ? ORDER BY s.created_at DESC`).all(u.id) as Array<Card & { saved_at: string }>;
   const live = rows.filter((r) => r.status === "live");
   const gone = rows.filter((r) => r.status !== "live");
   return (

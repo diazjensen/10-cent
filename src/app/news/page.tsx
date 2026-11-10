@@ -26,12 +26,12 @@ export default async function NewsIndex({ searchParams }: PageProps<"/news">) {
   const page = Math.max(1, Number(sp.page) || 1);
   const where = `a.status = 'published' AND a.published_at <= ?${cat ? " AND a.category = ?" : ""}`;
   const args = [new Date().toISOString(), ...(cat ? [cat] : [])];
-  const total = (db.prepare(`SELECT COUNT(*) n FROM articles a WHERE ${where}`).get(...args) as { n: number }).n;
-  const rows = db.prepare(`SELECT a.slug, a.title, a.category, a.excerpt, a.cover_url, a.author_name, a.published_at, c.name city,
+  const total = (await db.prepare(`SELECT COUNT(*) n FROM articles a WHERE ${where}`).get(...args) as { n: number }).n;
+  const rows = await db.prepare(`SELECT a.slug, a.title, a.category, a.excerpt, a.cover_url, a.author_name, a.published_at, c.name city,
       (LENGTH(a.body) - LENGTH(REPLACE(a.body, ' ', '')) + 1) words
     FROM articles a LEFT JOIN cities c ON c.id = a.city_id WHERE ${where} ORDER BY a.published_at DESC LIMIT ${PAGE} OFFSET ${(page - 1) * PAGE}`).all(...args) as Row[];
   const pages = Math.max(1, Math.ceil(total / PAGE));
-  const counts = Object.fromEntries((db.prepare("SELECT category, COUNT(*) n FROM articles WHERE status = 'published' GROUP BY category").all() as Array<{ category: string; n: number }>).map((r) => [r.category, r.n]));
+  const counts = Object.fromEntries((await db.prepare("SELECT category, COUNT(*) n FROM articles WHERE status = 'published' GROUP BY category").all() as Array<{ category: string; n: number }>).map((r) => [r.category, r.n]));
   const [lead, ...rest] = rows;
   const href = (c: string, p = 1) => { const q = new URLSearchParams(); if (c) q.set("category", c); if (p > 1) q.set("page", String(p)); const s = q.toString(); return `/news${s ? `?${s}` : ""}`; };
 

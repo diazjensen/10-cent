@@ -3,6 +3,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { requireAdmin, can } from "@/lib/auth";
 import { db } from "@/lib/db";
+import { pgInt } from "@/lib/admin/guard";
 import { formatPhone, formatDate, formatPaise, timeAgo } from "@/lib/format";
 import { LISTING_STATUS_LABEL } from "@/lib/constants";
 import { Badge, Breadcrumbs, Notice, inputClass, cx } from "@/components/ui";
@@ -22,16 +23,16 @@ type Profile = { company_name: string | null; rera_number: string | null; experi
 export default async function UserDetail({ params }: PageProps<"/admin/users/[id]">) {
   const me = await requireAdmin("users");
   const { id } = await params;
-  const u = db.prepare("SELECT * FROM users WHERE id = ?").get(Number(id)) as UserRow | undefined;
+  const u = await db.prepare("SELECT * FROM users WHERE id = ?").get(pgInt(id)) as UserRow | undefined;
   if (!u) notFound();
-  const p = db.prepare("SELECT pr.*, c.name city_name FROM profiles pr LEFT JOIN cities c ON c.id = pr.city_id WHERE user_id = ?").get(u.id) as Profile | undefined;
-  const listings = db.prepare("SELECT l.id, l.title, l.status, l.price, l.transaction_type, l.created_at, c.name city FROM listings l JOIN cities c ON c.id = l.city_id WHERE user_id = ? ORDER BY l.id DESC LIMIT 50").all(u.id) as { id: number; title: string; status: string; price: number; transaction_type: string; created_at: string; city: string }[];
-  const leadsIn = db.prepare("SELECT COUNT(*) n, SUM(status = 'spam') spam FROM leads WHERE poster_id = ?").get(u.id) as { n: number; spam: number | null };
-  const leadsOut = db.prepare("SELECT ld.id, ld.channel, ld.status, ld.created_at, ld.listing_id, l.title FROM leads ld LEFT JOIN listings l ON l.id = ld.listing_id WHERE ld.seeker_id = ? ORDER BY ld.id DESC LIMIT 15").all(u.id) as { id: number; channel: string; status: string; created_at: string; listing_id: number | null; title: string | null }[];
-  const leadsOutN = (db.prepare("SELECT COUNT(*) n, SUM(status='spam') spam FROM leads WHERE seeker_id = ?").get(u.id) as { n: number; spam: number | null });
-  const reports = db.prepare("SELECT r.id, r.reason, r.details, r.status, r.created_at, r.listing_id FROM reports r WHERE reported_user_id = ? ORDER BY r.id DESC").all(u.id) as { id: number; reason: string; details: string | null; status: string; created_at: string; listing_id: number | null }[];
-  const orders = db.prepare("SELECT o.id, o.status, o.total_paise, o.created_at, p.name plan, i.id invoice_id FROM orders o JOIN plans p ON p.id = o.plan_id LEFT JOIN invoices i ON i.order_id = o.id WHERE o.user_id = ? ORDER BY o.id DESC").all(u.id) as { id: number; status: string; total_paise: number; created_at: string; plan: string; invoice_id: number | null }[];
-  const subs = db.prepare("SELECT s.status, s.ends_at, p.name FROM subscriptions s JOIN plans p ON p.id = s.plan_id WHERE s.user_id = ? ORDER BY s.id DESC LIMIT 5").all(u.id) as { status: string; ends_at: string; name: string }[];
+  const p = await db.prepare("SELECT pr.*, c.name city_name FROM profiles pr LEFT JOIN cities c ON c.id = pr.city_id WHERE user_id = ?").get(u.id) as Profile | undefined;
+  const listings = await db.prepare("SELECT l.id, l.title, l.status, l.price, l.transaction_type, l.created_at, c.name city FROM listings l JOIN cities c ON c.id = l.city_id WHERE user_id = ? ORDER BY l.id DESC LIMIT 50").all(u.id) as { id: number; title: string; status: string; price: number; transaction_type: string; created_at: string; city: string }[];
+  const leadsIn = await db.prepare("SELECT COUNT(*) n, SUM(status = 'spam') spam FROM leads WHERE poster_id = ?").get(u.id) as { n: number; spam: number | null };
+  const leadsOut = await db.prepare("SELECT ld.id, ld.channel, ld.status, ld.created_at, ld.listing_id, l.title FROM leads ld LEFT JOIN listings l ON l.id = ld.listing_id WHERE ld.seeker_id = ? ORDER BY ld.id DESC LIMIT 15").all(u.id) as { id: number; channel: string; status: string; created_at: string; listing_id: number | null; title: string | null }[];
+  const leadsOutN = (await db.prepare("SELECT COUNT(*) n, SUM(status='spam') spam FROM leads WHERE seeker_id = ?").get(u.id) as { n: number; spam: number | null });
+  const reports = await db.prepare("SELECT r.id, r.reason, r.details, r.status, r.created_at, r.listing_id FROM reports r WHERE reported_user_id = ? ORDER BY r.id DESC").all(u.id) as { id: number; reason: string; details: string | null; status: string; created_at: string; listing_id: number | null }[];
+  const orders = await db.prepare("SELECT o.id, o.status, o.total_paise, o.created_at, p.name plan, i.id invoice_id FROM orders o JOIN plans p ON p.id = o.plan_id LEFT JOIN invoices i ON i.order_id = o.id WHERE o.user_id = ? ORDER BY o.id DESC").all(u.id) as { id: number; status: string; total_paise: number; created_at: string; plan: string; invoice_id: number | null }[];
+  const subs = await db.prepare("SELECT s.status, s.ends_at, p.name FROM subscriptions s JOIN plans p ON p.id = s.plan_id WHERE s.user_id = ? ORDER BY s.id DESC LIMIT 5").all(u.id) as { status: string; ends_at: string; name: string }[];
   const actioned = reports.filter((r) => r.status === "actioned").length;
   const isStaff = u.role === "admin";
 

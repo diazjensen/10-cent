@@ -44,7 +44,7 @@ function PlanForm({ p }: { p?: Plan }) {
 
 export default async function PlansPage() {
   await requireAdmin("billing");
-  const plans = db.prepare(`SELECT p.*, (SELECT COUNT(*) FROM orders o WHERE o.plan_id = p.id) orders,
+  const plans = await db.prepare(`SELECT p.*, (SELECT COUNT(*) FROM orders o WHERE o.plan_id = p.id) orders,
     (SELECT COUNT(*) FROM subscriptions s WHERE s.plan_id = p.id AND s.status = 'active') active_subs FROM plans p ORDER BY p.sort, p.id`).all() as Plan[];
   return (
     <div>

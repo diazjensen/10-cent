@@ -12,8 +12,8 @@ export async function GET(req: Request, ctx: RouteContext<"/api/admin/export/[ta
   if (!fn) return NextResponse.json({ error: `Unknown table. Use one of: ${Object.keys(TABLES).join(", ")}` }, { status: 404 });
   const sp = Object.fromEntries(new URL(req.url).searchParams);
   const range = parseRange(sp);
-  const t = fn(range);
-  audit(u!.id, "analytics.export", "report", null, { table, ...range });
+  const t = await fn(range);
+  await audit(u!.id, "analytics.export", "report", null, { table, ...range });
   return new NextResponse(toCsv(t), {
     headers: {
       "content-type": "text/csv; charset=utf-8",

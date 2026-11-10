@@ -26,8 +26,8 @@ export const ADMIN_LISTING_SELECT = `
   LEFT JOIN projects p ON p.id = l.project_id
 `;
 
-export function getAdminListing(id: number) {
-  return db.prepare(`${ADMIN_LISTING_SELECT} WHERE l.id = ?`).get(id) as AdminListing | undefined;
+export async function getAdminListing(id: number) {
+  return await db.prepare(`${ADMIN_LISTING_SELECT} WHERE l.id = ?`).get(id) as AdminListing | undefined;
 }
 
 export const areaOf = (l: Pick<AdminListing, "carpet_area" | "super_area" | "builtup_area" | "plot_area">) =>
@@ -40,7 +40,7 @@ const EMAIL_RE = /[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/i;
 const CONTACT_WORDS = /\b(whats\s?app|call me|contact me on|ping me)\b/i;
 
 /** Combines stored auto-check results (P3) with checks computed now against the live catalogue. */
-export function computeFlags(l: AdminListing): { flags: Flag[]; ppsf: number | null; localityAvg: number | null; deviation: number | null } {
+export async function computeFlags(l: AdminListing): Promise<{ flags: Flag[]; ppsf: number | null; localityAvg: number | null; deviation: number | null }> {
   const flags: Flag[] = [];
   let stored: Record<string, unknown> = {};
   try { stored = l.auto_flags ? JSON.parse(l.auto_flags) : {}; } catch { /* ignore malformed */ }
@@ -49,7 +49,7 @@ export function computeFlags(l: AdminListing): { flags: Flag[]; ppsf: number | n
   const dupIds = new Set<number>();
   if (typeof stored.duplicateOf === "number") dupIds.add(stored.duplicateOf);
   if (l.dup_hash) {
-    for (const r of db.prepare("SELECT id FROM listings WHERE dup_hash = ? AND id <> ? AND status IN ('live','pending','paused') LIMIT 5").all(l.dup_hash, l.id) as { id: number }[]) dupIds.add(r.id);
+    for (const r of await db.prepare("SELECT id FROM listings WHERE dup_hash = ? AND id <> ? AND status IN ('live','pending','paused') LIMIT 5").all(l.dup_hash, l.id) as { id: number }[]) dupIds.add(r.id);
   }
   if (stored.duplicate || dupIds.size) {
     flags.push({
@@ -60,7 +60,7 @@ export function computeFlags(l: AdminListing): { flags: Flag[]; ppsf: number | n
   }
 
   // Image reuse: identical photo bytes used on another listing.
-  const reused = db.prepare(`
+  const reused = await db.prepare(`
     SELECT DISTINCT m2.listing_id id FROM listing_media m1
     JOIN listing_media m2 ON m2.sha256 = m1.sha256 AND m2.listing_id <> m1.listing_id
     WHERE m1.listing_id = ? AND m1.sha256 IS NOT NULL LIMIT 5`).all(l.id) as { id: number }[];
@@ -77,7 +77,7 @@ export function computeFlags(l: AdminListing): { flags: Flag[]; ppsf: number | n
   const ppsf = area ? l.price / area : null;
   let localityAvg: number | null = null, deviation: number | null = null;
   if (l.locality_id && ppsf) {
-    const r = db.prepare(`
+    const r = await db.prepare(`
       SELECT AVG(price * 1.0 / COALESCE(carpet_area, super_area, builtup_area, plot_area)) a, COUNT(*) n FROM listings
       WHERE locality_id = ? AND transaction_type = ? AND status = 'live' AND id <> ? AND COALESCE(carpet_area, super_area, builtup_area, plot_area) > 0`).get(l.locality_id, l.transaction_type, l.id) as { a: number | null; n: number };
     if (r.a && r.n >= 2) {
@@ -106,19 +106,19 @@ export function computeFlags(l: AdminListing): { flags: Flag[]; ppsf: number | n
   return { flags, ppsf, localityAvg, deviation };
 }
 
-export function posterHistory(userId: number) {
-  const byStatus = db.prepare("SELECT status, COUNT(*) n FROM listings WHERE user_id = ? GROUP BY status").all(userId) as { status: string; n: number }[];
-  const reports = db.prepare("SELECT COUNT(*) n, SUM(status = 'actioned') actioned FROM reports WHERE reported_user_id = ?").get(userId) as { n: number; actioned: number | null };
-  const last = db.prepare("SELECT ml.action, ml.reason, ml.created_at, ml.listing_id FROM moderation_logs ml JOIN listings l ON l.id = ml.listing_id WHERE l.user_id = ? AND ml.action IN ('rejected','takedown') ORDER BY ml.id DESC LIMIT 3").all(userId) as { action: string; reason: string | null; created_at: string; listing_id: number }[];
-  const sub = db.prepare("SELECT p.name FROM subscriptions s JOIN plans p ON p.id = s.plan_id WHERE s.user_id = ? AND s.status = 'active' AND s.ends_at > ? ORDER BY s.ends_at DESC LIMIT 1").get(userId, new Date().toISOString()) as { name: string } | undefined;
+export async function posterHistory(userId: number) {
+  const byStatus = await db.prepare("SELECT status, COUNT(*) n FROM listings WHERE user_id = ? GROUP BY status").all(userId) as { status: string; n: number }[];
+  const reports = await db.prepare("SELECT COUNT(*) n, SUM(status = 'actioned') actioned FROM reports WHERE reported_user_id = ?").get(userId) as { n: number; actioned: number | null };
+  const last = await db.prepare("SELECT ml.action, ml.reason, ml.created_at, ml.listing_id FROM moderation_logs ml JOIN listings l ON l.id = ml.listing_id WHERE l.user_id = ? AND ml.action IN ('rejected','takedown') ORDER BY ml.id DESC LIMIT 3").all(userId) as { action: string; reason: string | null; created_at: string; listing_id: number }[];
+  const sub = await db.prepare("SELECT p.name FROM subscriptions s JOIN plans p ON p.id = s.plan_id WHERE s.user_id = ? AND s.status = 'active' AND s.ends_at > ? ORDER BY s.ends_at DESC LIMIT 1").get(userId, new Date().toISOString()) as { name: string } | undefined;
   const total = byStatus.reduce((a, b) => a + b.n, 0);
   return { byStatus, total, reports: reports.n, actioned: reports.actioned ?? 0, last, plan: sub?.name ?? null };
 }
 
-export function photos(listingId: number) {
-  return db.prepare("SELECT id, url, kind, caption FROM listing_media WHERE listing_id = ? ORDER BY kind = 'photo' DESC, sort").all(listingId) as { id: number; url: string; kind: string; caption: string | null }[];
+export async function photos(listingId: number) {
+  return await db.prepare("SELECT id, url, kind, caption FROM listing_media WHERE listing_id = ? ORDER BY kind = 'photo' DESC, sort").all(listingId) as { id: number; url: string; kind: string; caption: string | null }[];
 }
 
-export function modLog(listingId: number) {
-  return db.prepare("SELECT ml.*, u.name actor_name FROM moderation_logs ml LEFT JOIN users u ON u.id = ml.actor_id WHERE ml.listing_id = ? ORDER BY ml.id DESC").all(listingId) as { id: number; action: string; reason: string | null; created_at: string; actor_name: string | null }[];
+export async function modLog(listingId: number) {
+  return await db.prepare("SELECT ml.*, u.name actor_name FROM moderation_logs ml LEFT JOIN users u ON u.id = ml.actor_id WHERE ml.listing_id = ? ORDER BY ml.id DESC").all(listingId) as { id: number; action: string; reason: string | null; created_at: string; actor_name: string | null }[];
 }

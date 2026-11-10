@@ -32,11 +32,11 @@ export default async function AnalyticsPage({ searchParams }: PageProps<"/admin/
   const days = dayRange(r.from, r.to);
   const labelEvery = Math.max(1, Math.ceil(days.length / 6));
 
-  const traffic = trafficTable(r);
-  const supply = supplyTable(r);
-  const leads = leadsTable(r);
-  const revenue = revenueTable(r);
-  const funnel = funnelTable(r);
+  const traffic = await trafficTable(r);
+  const supply = await supplyTable(r);
+  const leads = await leadsTable(r);
+  const revenue = await revenueTable(r);
+  const funnel = await funnelTable(r);
 
   const tSeries = (col: number) => fillDays(traffic.rows.map((x) => ({ day: String(x[0]), v: Number(x[col]) })), r.from, r.to).map((p) => ({ x: shortDay(p.day), y: p.v }));
   const supplyDaily = fillDays(sumBy(supply.rows, (x) => String(x[0]), (x) => Number(x[4])).map((x) => ({ day: x.label, v: x.value })), r.from, r.to).map((p) => ({ x: shortDay(p.day), y: p.v }));
@@ -52,7 +52,7 @@ export default async function AnalyticsPage({ searchParams }: PageProps<"/admin/
         <FInput label="To" type="date" name="to" defaultValue={r.to} />
         <FSelect label="City" name="city" defaultValue={r.city}>
           <option value="">All cities</option>
-          {getCities().map((c) => <option key={c.slug} value={c.slug}>{c.name}</option>)}
+          {(await getCities()).map((c) => <option key={c.slug} value={c.slug}>{c.name}</option>)}
         </FSelect>
         <div className="flex gap-1.5 text-xs pb-2">
           {[7, 30, 90].map((n) => (

@@ -8,7 +8,7 @@ export default async function AccountLayout({ children }: LayoutProps<"/account"
   const u = await getUser();
   // Pages enforce login themselves (so they can redirect back to the right tab); signed-out views render bare.
   if (!u) return <>{children}</>;
-  const c = db.prepare(`SELECT
+  const c = await db.prepare(`SELECT
       (SELECT COUNT(*) FROM shortlists WHERE user_id = @id) shortlist,
       (SELECT COUNT(*) FROM leads WHERE seeker_id = @id) contacted,
       (SELECT COUNT(*) FROM saved_searches WHERE user_id = @id) searches,

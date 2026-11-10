@@ -24,17 +24,18 @@ export default async function RequirementPage({ searchParams }: PageProps<"/requ
   const posted = Number(sp.posted) || 0;
   const user = await getUser();
   const jar = await cookies();
-  const cities = getCities();
+  const cities = await getCities();
   const defaultCity = cities.find((c) => c.slug === jar.get("tc_city")?.value)?.slug ?? cities[0].slug;
-  const cityData = cities.map((c) => ({ slug: c.slug, name: c.name, localities: getLocalities(c.id).map((l) => ({ id: l.id, name: l.name })) }));
+  const cityData = await Promise.all(cities.map(async (c) => ({ slug: c.slug, name: c.name, localities: (await getLocalities(c.id)).map((l) => ({ id: l.id, name: l.name })) })));
   const locName = Object.fromEntries(cityData.flatMap((c) => c.localities.map((l) => [l.id, l.name])));
-  const reqs = user ? (db.prepare(`SELECT r.*, c.slug city_slug, c.name city_name FROM requirements r JOIN cities c ON c.id = r.city_id WHERE r.user_id = ? ORDER BY r.active DESC, r.created_at DESC`).all(user.id) as Req[]) : [];
-  const saved = new Set(user ? (db.prepare("SELECT listing_id FROM shortlists WHERE user_id = ?").all(user.id) as { listing_id: number }[]).map((r) => r.listing_id) : []);
+  const reqs = user ? (await db.prepare(`SELECT r.*, c.slug city_slug, c.name city_name FROM requirements r JOIN cities c ON c.id = r.city_id WHERE r.user_id = ? ORDER BY r.active DESC, r.created_at DESC`).all(user.id) as Req[]) : [];
+  const saved = new Set(user ? (await db.prepare("SELECT listing_id FROM shortlists WHERE user_id = ?").all(user.id) as { listing_id: number }[]).map((r) => r.listing_id) : []);
 
   const filtersFor = (r: Req) => ({
     city: r.city_slug, tx: r.transaction_type, loc: r.locality_ids ?? undefined, type: r.property_type ?? undefined,
     bhk: r.bhk ? String(r.bhk) : undefined, min: r.budget_min ? String(r.budget_min) : undefined, max: r.budget_max ? String(r.budget_max) : undefined,
   });
+  const matches = await Promise.all(reqs.map((r) => (r.active ? searchListings(filtersFor(r), { pageSize: 4 }) : null)));
   const qs = (r: Req) => new URLSearchParams(Object.entries(filtersFor(r)).filter(([, v]) => v) as [string, string][]).toString();
   const money = (r: Req, n: number) => (r.transaction_type === "sell" ? formatPrice(n, { short: true }) : `₹${formatINR(n)}`);
 
@@ -60,8 +61,8 @@ export default async function RequirementPage({ searchParams }: PageProps<"/requ
           <h2 className="font-display text-3xl mb-4">Your requirements</h2>
           {posted > 0 && reqs.some((r) => r.id === posted) && <Notice tone="trust" className="mb-4">Requirement posted. Here are the listings that match it today.</Notice>}
           <div className="space-y-8">
-            {reqs.map((r) => {
-              const m = r.active ? searchListings(filtersFor(r), { pageSize: 4 }) : null;
+            {reqs.map((r, ri) => {
+              const m = matches[ri];
               const chips = [
                 r.transaction_type === "sell" ? "Buy" : r.transaction_type === "rent" ? "Rent" : "PG", r.city_name,
                 r.locality_ids ? r.locality_ids.split(",").map((id) => locName[Number(id)]).filter(Boolean).join(", ") : null,

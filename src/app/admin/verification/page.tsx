@@ -16,14 +16,14 @@ type Row = { id: number; title: string; status: string; price: number; transacti
 
 export default async function VerificationPage() {
   await requireAdmin("moderation");
-  const rows = db.prepare(`
+  const rows = await db.prepare(`
     SELECT l.id, l.title, l.status, l.price, l.transaction_type, l.address, l.verification_requested_at, c.name city, lo.name locality, l.user_id, u.name, u.phone,
       (SELECT url FROM listing_media m WHERE m.listing_id = l.id AND m.kind = 'photo' ORDER BY sort LIMIT 1) cover,
       (SELECT reason FROM moderation_logs m WHERE m.listing_id = l.id AND m.action = 'verify_scheduled' AND m.created_at >= l.verification_requested_at ORDER BY m.id DESC LIMIT 1) sched
     FROM listings l JOIN users u ON u.id = l.user_id JOIN cities c ON c.id = l.city_id LEFT JOIN localities lo ON lo.id = l.locality_id
     WHERE l.verification_requested_at IS NOT NULL AND l.verified = 0 AND l.status IN ('live','pending','paused')
     ORDER BY l.verification_requested_at ASC`).all() as Row[];
-  const recent = db.prepare(`SELECT ml.listing_id, ml.action, ml.created_at, l.title, u.name actor FROM moderation_logs ml JOIN listings l ON l.id = ml.listing_id LEFT JOIN users u ON u.id = ml.actor_id WHERE ml.action IN ('verified','verify_declined') ORDER BY ml.id DESC LIMIT 8`).all() as { listing_id: number; action: string; created_at: string; title: string; actor: string | null }[];
+  const recent = await db.prepare(`SELECT ml.listing_id, ml.action, ml.created_at, l.title, u.name actor FROM moderation_logs ml JOIN listings l ON l.id = ml.listing_id LEFT JOIN users u ON u.id = ml.actor_id WHERE ml.action IN ('verified','verify_declined') ORDER BY ml.id DESC LIMIT 8`).all() as { listing_id: number; action: string; created_at: string; title: string; actor: string | null }[];
   const minDate = new Date(nowMs() + 5.5 * 3600000).toISOString().slice(0, 16);
 
   return (

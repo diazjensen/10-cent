@@ -26,9 +26,10 @@ export async function createRequirement(_prev: ReqState, form: FormData): Promis
   const parsed = schema.safeParse({ tx: form.get("tx"), city: form.get("city"), type: form.get("type") ?? "", bhk: form.get("bhk") ?? "", notes: form.get("notes") ?? "" });
   const fe: Record<string, string> = {};
   if (!parsed.success) for (const i of parsed.error.issues) fe[String(i.path[0])] ??= i.message;
-  const city = db.prepare("SELECT id FROM cities WHERE slug = ?").get(String(form.get("city") ?? "")) as { id: number } | undefined;
+  const city = await db.prepare("SELECT id FROM cities WHERE slug = ?").get(String(form.get("city") ?? "")) as { id: number } | undefined;
   if (!city) fe.city ??= "Choose a city";
-  const locIds = city ? form.getAll("loc").map(Number).filter((id) => db.prepare("SELECT 1 FROM localities WHERE id = ? AND city_id = ?").get(id, city.id)) : [];
+  const locIds: number[] = [];
+  if (city) for (const id of form.getAll("loc").map(Number)) if (await db.prepare("SELECT 1 FROM localities WHERE id = ? AND city_id = ?").get(id, city.id)) locIds.push(id);
   if (locIds.length > 8) fe.loc = "Pick up to 8 localities";
   const bminRaw = String(form.get("budget_min") ?? "").trim(), bmaxRaw = String(form.get("budget_max") ?? "").trim();
   const bmin = bminRaw ? parseBudget(bminRaw) : null, bmax = bmaxRaw ? parseBudget(bmaxRaw) : null;
@@ -37,12 +38,12 @@ export async function createRequirement(_prev: ReqState, form: FormData): Promis
   if (!bmaxRaw) fe.budget_max ??= "Set a maximum budget so we can match listings";
   if (bmin != null && bmax != null && bmin > bmax) fe.budget_max = "Maximum must be more than minimum";
   if (Object.keys(fe).length || !parsed.success || !city) return { fieldErrors: fe };
-  if (!rateLimit(`req:${u.id}`, 10, 86400).ok) return { error: "You can post up to 10 requirements a day." };
-  const active = (db.prepare("SELECT COUNT(*) n FROM requirements WHERE user_id = ? AND active = 1").get(u.id) as { n: number }).n;
+  if (!(await rateLimit(`req:${u.id}`, 10, 86400)).ok) return { error: "You can post up to 10 requirements a day." };
+  const active = (await db.prepare("SELECT COUNT(*) n FROM requirements WHERE user_id = ? AND active = 1").get(u.id) as { n: number }).n;
   if (active >= 10) return { error: "You have 10 active requirements. Pause one before adding another." };
   const d = parsed.data;
-  const info = db.prepare("INSERT INTO requirements (user_id, transaction_type, city_id, locality_ids, property_type, bhk, budget_min, budget_max, notes) VALUES (?,?,?,?,?,?,?,?,?)")
-    .run(u.id, d.tx, city.id, locIds.join(",") || null, d.type || null, d.bhk === "" ? null : d.bhk, bmin, bmax, d.notes || null);
+  const info = await db.prepare("INSERT INTO requirements (user_id, transaction_type, city_id, locality_ids, property_type, bhk, budget_min, budget_max, notes) VALUES (?,?,?,?,?,?,?,?,?)")
+      .run(u.id, d.tx, city.id, locIds.join(",") || null, d.type || null, d.bhk === "" ? null : d.bhk, bmin, bmax, d.notes || null);
   revalidatePath("/requirement");
   redirect(`/requirement?posted=${info.lastInsertRowid}#req-${info.lastInsertRowid}`);
 }
@@ -50,13 +51,13 @@ export async function createRequirement(_prev: ReqState, form: FormData): Promis
 export async function toggleRequirement(form: FormData) {
   const u = await getUser();
   if (!u) redirect("/login?next=/requirement");
-  db.prepare("UPDATE requirements SET active = 1 - active WHERE id = ? AND user_id = ?").run(Number(form.get("id")), u.id);
+  await db.prepare("UPDATE requirements SET active = 1 - active WHERE id = ? AND user_id = ?").run(Number(form.get("id")), u.id);
   revalidatePath("/requirement");
 }
 
 export async function deleteRequirement(form: FormData) {
   const u = await getUser();
   if (!u) redirect("/login?next=/requirement");
-  db.prepare("DELETE FROM requirements WHERE id = ? AND user_id = ?").run(Number(form.get("id")), u.id);
+  await db.prepare("DELETE FROM requirements WHERE id = ? AND user_id = ?").run(Number(form.get("id")), u.id);
   revalidatePath("/requirement");
 }

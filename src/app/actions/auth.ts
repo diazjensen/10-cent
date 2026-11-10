@@ -39,6 +39,6 @@ export async function logoutAction() {
 export async function whoAmI() {
   const u = await getUser();
   if (!u) return null;
-  const unread = (db.prepare("SELECT COUNT(*) n FROM notifications WHERE user_id = ? AND read = 0").get(u.id) as { n: number }).n;
+  const unread = (await db.prepare("SELECT COUNT(*) n FROM notifications WHERE user_id = ? AND read = 0").get(u.id) as { n: number }).n;
   return { id: u.id, name: u.name, phone: u.phone, email: u.email, role: u.role, admin_role: u.admin_role, unread };
 }

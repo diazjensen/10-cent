@@ -25,7 +25,7 @@ export async function staff(area: string): Promise<User | null> {
 }
 
 export async function auditAs(u: User, action: string, entity: string, entityId: number | null, details?: unknown) {
-  writeAudit(u.id, action, entity, entityId, details, await clientIp());
+  await writeAudit(u.id, action, entity, entityId, details, await clientIp());
 }
 
 export function done(ok: string, data?: unknown): ActionState {
@@ -56,4 +56,12 @@ export const int = (fd: FormData, k: string) => {
 };
 export const bool = (fd: FormData, k: string) => (fd.get(k) === "on" || fd.get(k) === "1" || fd.get(k) === "true" ? 1 : 0);
 export const ids = (fd: FormData, k = "ids") =>
-  fd.getAll(k).map((v) => Number(v)).filter((n) => Number.isInteger(n) && n > 0);
+  fd.getAll(k).map((v) => Number(v)).filter((n) => Number.isInteger(n) && n > 0 && n <= 2147483647);
+
+/** Positive Postgres-safe integer from user input (query string / route param); 0 when invalid so lookups simply find nothing. */
+export const pgInt = (v: unknown) => {
+  const n = Number(v);
+  return Number.isSafeInteger(n) && n > 0 && n <= 2147483647 ? n : 0;
+};
+/** Page number clamped so OFFSET stays a sane integer. */
+export const pageNum = (v: unknown) => Math.min(100000, Math.max(1, Math.floor(Number(v)) || 1));

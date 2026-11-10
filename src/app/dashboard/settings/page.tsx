@@ -10,10 +10,10 @@ export const metadata: Metadata = { title: "Enquiry alerts", robots: { index: fa
 
 export default async function SettingsPage() {
   const { subject } = await dashboardContext("/dashboard/settings");
-  const prefs = (db.prepare("SELECT email, sms, whatsapp, push FROM notification_prefs WHERE user_id = ?").get(subject.id) as { email: number; sms: number; whatsapp: number; push: number } | undefined) ?? { email: 1, sms: 1, whatsapp: 0, push: 1 };
+  const prefs = (await db.prepare("SELECT email, sms, whatsapp, push FROM notification_prefs WHERE user_id = ?").get(subject.id) as { email: number; sms: number; whatsapp: number; push: number } | undefined) ?? { email: 1, sms: 1, whatsapp: 0, push: 1 };
   const recipients = [subject.phone, subject.email].filter(Boolean) as string[];
   const recent = recipients.length
-    ? (db.prepare(`SELECT channel, recipient, subject, body, status, created_at FROM outbox WHERE recipient IN (${recipients.map(() => "?").join(",")}) AND body NOT LIKE '%verification code%' ORDER BY id DESC LIMIT 8`).all(...recipients) as Array<{ channel: string; recipient: string; subject: string | null; body: string; status: string; created_at: string }>)
+    ? (await db.prepare(`SELECT channel, recipient, subject, body, status, created_at FROM outbox WHERE recipient IN (${recipients.map(() => "?").join(",")}) AND body NOT LIKE '%verification code%' ORDER BY id DESC LIMIT 8`).all(...recipients) as Array<{ channel: string; recipient: string; subject: string | null; body: string; status: string; created_at: string }>)
     : [];
   return (
     <div className="max-w-3xl">

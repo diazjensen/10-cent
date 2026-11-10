@@ -16,7 +16,7 @@ export default async function SpamDashboard({ searchParams }: PageProps<"/admin/
   const days = [1, 7, 30].includes(Number(sp.days)) ? Number(sp.days) : 7;
   const since = addDays(-days);
 
-  const dups = db.prepare(`
+  const dups = await db.prepare(`
     SELECT l.id, l.title, l.status, l.created_at, l.user_id, u.name, u.phone, l.auto_flags,
       (SELECT GROUP_CONCAT(x.id) FROM listings x WHERE x.dup_hash = l.dup_hash AND x.id <> l.id AND l.dup_hash IS NOT NULL) same_hash
     FROM listings l JOIN users u ON u.id = l.user_id
@@ -25,26 +25,26 @@ export default async function SpamDashboard({ searchParams }: PageProps<"/admin/
       OR (l.dup_hash IS NOT NULL AND EXISTS (SELECT 1 FROM listings x WHERE x.dup_hash = l.dup_hash AND x.id <> l.id AND x.status IN ('pending','live','paused')))
     ) ORDER BY l.id DESC LIMIT 40`).all() as { id: number; title: string; status: string; created_at: string; user_id: number; name: string | null; phone: string | null; auto_flags: string | null; same_hash: string | null }[];
 
-  const imgReuse = db.prepare(`
+  const imgReuse = await db.prepare(`
     SELECT m1.listing_id a, m2.listing_id b, COUNT(*) n FROM listing_media m1
     JOIN listing_media m2 ON m1.sha256 = m2.sha256 AND m1.listing_id < m2.listing_id
     WHERE m1.sha256 IS NOT NULL GROUP BY a, b ORDER BY n DESC LIMIT 20`).all() as { a: number; b: number; n: number }[];
 
-  const bursts = db.prepare(`
+  const bursts = await db.prepare(`
     SELECT u.id, u.name, u.phone, u.role, u.blocked, COUNT(*) n, MIN(l.created_at) first, MAX(l.created_at) last,
       SUM(l.status = 'rejected') rejected
     FROM listings l JOIN users u ON u.id = l.user_id
-    WHERE l.created_at >= ? GROUP BY u.id HAVING n >= ? ORDER BY n DESC LIMIT 25`).all(since, days === 1 ? 3 : 5) as { id: number; name: string | null; phone: string | null; role: string; blocked: number; n: number; first: string; last: string; rejected: number }[];
+    WHERE l.created_at >= ? GROUP BY u.id HAVING COUNT(*) >= ? ORDER BY n DESC LIMIT 25`).all(since, days === 1 ? 3 : 5) as { id: number; name: string | null; phone: string | null; role: string; blocked: number; n: number; first: string; last: string; rejected: number }[];
 
-  const scrapers = db.prepare(`
+  const scrapers = await db.prepare(`
     SELECT s.id, s.name, s.phone, s.blocked, COUNT(*) total, SUM(ld.status = 'spam') spam,
       COUNT(DISTINCT ld.poster_id) posters, SUM(ld.channel = 'phone_reveal') reveals
     FROM leads ld JOIN users s ON s.id = ld.seeker_id
-    WHERE ld.created_at >= ? GROUP BY s.id HAVING spam >= 2 OR reveals >= 15 OR total >= 30
+    WHERE ld.created_at >= ? GROUP BY s.id HAVING SUM((ld.status = 'spam')::int) >= 2 OR SUM((ld.channel = 'phone_reveal')::int) >= 15 OR COUNT(*) >= 30
     ORDER BY spam DESC, total DESC LIMIT 25`).all(since) as { id: number; name: string | null; phone: string | null; blocked: number; total: number; spam: number; posters: number; reveals: number }[];
 
   const now = Math.floor(nowMs() / 1000);
-  const limits = db.prepare("SELECT key, window_start, count FROM rate_limits ORDER BY count DESC LIMIT 25").all() as { key: string; window_start: number; count: number }[];
+  const limits = await db.prepare("SELECT key, window_start, count FROM rate_limits ORDER BY count DESC LIMIT 25").all() as { key: string; window_start: number; count: number }[];
 
   return (
     <div>

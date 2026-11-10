@@ -9,7 +9,7 @@ import { Breadcrumbs, Container, cx } from "@/components/ui";
 
 export async function generateMetadata({ params }: PageProps<"/localities/[city]">): Promise<Metadata> {
   const { city } = await params;
-  const c = getCity(city);
+  const c = await getCity(city);
   if (!c) return { title: "City not found" };
   return {
     title: `Localities in ${c.name}: prices, rents and ratings`,
@@ -20,10 +20,10 @@ export async function generateMetadata({ params }: PageProps<"/localities/[city]
 
 export default async function CityLocalities({ params }: PageProps<"/localities/[city]">) {
   const { city } = await params;
-  const c = getCity(city);
+  const c = await getCity(city);
   if (!c) notFound();
-  const rows = localityStats(c.id);
-  const cities = getCities();
+  const rows = await localityStats(c.id);
+  const cities = await getCities();
   return (
     <Container className="py-8 md:py-12">
       <Breadcrumbs items={[{ label: "Home", href: "/" }, { label: `Localities in ${c.name}` }]} />

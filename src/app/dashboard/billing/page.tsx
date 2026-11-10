@@ -14,13 +14,13 @@ const LABEL: Record<string, string> = { paid: "Paid", created: "Awaiting payment
 
 export default async function BillingPage() {
   const { subject } = await dashboardContext("/dashboard/billing");
-  const q = listingQuota(subject.id);
-  const orders = db.prepare(
-    `SELECT o.*, p.name plan_name, c.code coupon_code, i.id invoice_id, i.number invoice_number
+  const q = await listingQuota(subject.id);
+  const orders = await db.prepare(
+      `SELECT o.*, p.name plan_name, c.code coupon_code, i.id invoice_id, i.number invoice_number
      FROM orders o JOIN plans p ON p.id = o.plan_id LEFT JOIN coupons c ON c.id = o.coupon_id LEFT JOIN invoices i ON i.order_id = o.id
      WHERE o.user_id = ? ORDER BY o.created_at DESC`
-  ).all(subject.id) as Array<{ id: number; plan_name: string; coupon_code: string | null; total_paise: number; status: string; created_at: string; paid_at: string | null; gateway_ref: string | null; invoice_id: number | null; invoice_number: string | null }>;
-  const subs = db.prepare("SELECT s.*, p.name FROM subscriptions s JOIN plans p ON p.id = s.plan_id WHERE s.user_id = ? ORDER BY s.starts_at DESC LIMIT 10").all(subject.id) as Array<{ id: number; name: string; starts_at: string; ends_at: string; status: string }>;
+    ).all(subject.id) as Array<{ id: number; plan_name: string; coupon_code: string | null; total_paise: number; status: string; created_at: string; paid_at: string | null; gateway_ref: string | null; invoice_id: number | null; invoice_number: string | null }>;
+  const subs = await db.prepare("SELECT s.*, p.name FROM subscriptions s JOIN plans p ON p.id = s.plan_id WHERE s.user_id = ? ORDER BY s.starts_at DESC LIMIT 10").all(subject.id) as Array<{ id: number; name: string; starts_at: string; ends_at: string; status: string }>;
   const daysLeft = q.plan ? Math.max(0, Math.ceil((new Date(q.plan.ends_at).getTime() - nowMs()) / 86400000)) : null;
 
   return (

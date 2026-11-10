@@ -53,37 +53,39 @@ export async function clientIp() {
 /** Create and "send" an OTP to a phone number or email. */
 export async function sendOtp(target: string): Promise<{ ok: true; devCode?: string } | { ok: false; error: string }> {
   const ip = await clientIp();
-  const perTarget = rateLimit(`otp:t:${target}`, 5, 3600);
-  const perIp = rateLimit(`otp:ip:${ip}`, 20, 3600);
+  const perTarget = await rateLimit(`otp:t:${target}`, 5, 3600);
+  const perIp = await rateLimit(`otp:ip:${ip}`, 20, 3600);
   if (!perTarget.ok || !perIp.ok) return { ok: false, error: "Too many OTP requests. Please try again in a while." };
 
   const code = String(crypto.randomInt(100000, 1000000));
-  db.prepare("UPDATE otps SET consumed = 1 WHERE target = ? AND consumed = 0").run(target);
-  db.prepare("INSERT INTO otps (target, code_hash, expires_at, ip) VALUES (?,?,?,?)").run(
-    target, sha(`${target}:${code}`), new Date(Date.now() + OTP_TTL_MIN * 60000).toISOString(), ip
-  );
+  await db.prepare("UPDATE otps SET consumed = 1 WHERE target = ? AND consumed = 0").run(target);
+  await db.prepare("INSERT INTO otps (target, code_hash, expires_at, ip) VALUES (?,?,?,?)").run(
+        target, sha(`${target}:${code}`), new Date(Date.now() + OTP_TTL_MIN * 60000).toISOString(), ip
+      );
   const isEmail = target.includes("@");
-  queueMessage(isEmail ? "email" : "sms", target, `${code} is your 10cent verification code. It expires in ${OTP_TTL_MIN} minutes. Do not share it with anyone.`, "Your 10cent code");
+  await queueMessage(isEmail ? "email" : "sms", target, `${code} is your 10cent verification code. It expires in ${OTP_TTL_MIN} minutes. Do not share it with anyone.`, "Your 10cent code");
   return OTP_DEV_MODE ? { ok: true, devCode: code } : { ok: true };
 }
 
 /** Verify an OTP; on success creates the user if needed and starts a session. */
 export async function verifyOtp(target: string, code: string, extra?: { name?: string; role?: string }): Promise<{ ok: true; user: User; isNew: boolean } | { ok: false; error: string }> {
-  const row = db.prepare(
-    "SELECT * FROM otps WHERE target = ? AND consumed = 0 ORDER BY id DESC LIMIT 1"
-  ).get(target) as { id: number; code_hash: string; expires_at: string; attempts: number } | undefined;
+  const row = await db.prepare(
+      "SELECT * FROM otps WHERE target = ? AND consumed = 0 ORDER BY id DESC LIMIT 1"
+    ).get(target) as { id: number; code_hash: string; expires_at: string; attempts: number } | undefined;
   if (!row) return { ok: false, error: "Request a new OTP." };
   if (new Date(row.expires_at) < new Date()) return { ok: false, error: "OTP expired. Request a new one." };
   if (row.attempts >= OTP_MAX_ATTEMPTS) return { ok: false, error: "Too many wrong attempts. Request a new OTP." };
   const good = crypto.timingSafeEqual(Buffer.from(row.code_hash), Buffer.from(sha(`${target}:${code.trim()}`)));
   if (!good) {
-    db.prepare("UPDATE otps SET attempts = attempts + 1 WHERE id = ?").run(row.id);
+    await db.prepare("UPDATE otps SET attempts = attempts + 1 WHERE id = ?").run(row.id);
     return { ok: false, error: "Incorrect OTP." };
   }
-  db.prepare("UPDATE otps SET consumed = 1 WHERE id = ?").run(row.id);
+  // Atomic single-use: a concurrent verify of the same code loses this race instead of creating a duplicate user.
+  const claimed = await db.prepare("UPDATE otps SET consumed = 1 WHERE id = ? AND consumed = 0").run(row.id);
+  if (!claimed.changes) return { ok: false, error: "This code was already used. Request a new OTP." };
 
   const isEmail = target.includes("@");
-  let user = db.prepare(`SELECT * FROM users WHERE ${isEmail ? "email" : "phone"} = ?`).get(target) as User & { deleted_at: string | null } | undefined;
+  let user = await db.prepare(`SELECT * FROM users WHERE ${isEmail ? "email" : "phone"} = ?`).get(target) as User & { deleted_at: string | null } | undefined;
   let isNew = false;
   if (user?.deleted_at) {
     // A deleted account's identifiers were already scrubbed; this branch is defensive.
@@ -92,20 +94,20 @@ export async function verifyOtp(target: string, code: string, extra?: { name?: s
   if (!user) {
     const allowedRoles = ["seeker", "owner", "agent", "builder"];
     const role = extra?.role && allowedRoles.includes(extra.role) ? extra.role : "seeker";
-    const info = db.prepare(`INSERT INTO users (${isEmail ? "email" : "phone"}, name, role) VALUES (?,?,?)`).run(target, extra?.name?.trim() || null, role);
-    db.prepare("INSERT OR IGNORE INTO notification_prefs (user_id) VALUES (?)").run(info.lastInsertRowid);
-    user = db.prepare("SELECT * FROM users WHERE id = ?").get(info.lastInsertRowid) as User & { deleted_at: string | null };
+    const info = await db.prepare(`INSERT INTO users (${isEmail ? "email" : "phone"}, name, role) VALUES (?,?,?)`).run(target, extra?.name?.trim() || null, role);
+    await db.prepare("INSERT OR IGNORE INTO notification_prefs (user_id) VALUES (?)").run(info.lastInsertRowid);
+    user = await db.prepare("SELECT * FROM users WHERE id = ?").get(info.lastInsertRowid) as User & { deleted_at: string | null };
     isNew = true;
   }
   if (user.blocked) return { ok: false, error: "This account has been blocked. Contact support@10cent.in." };
-  db.prepare("UPDATE users SET last_login_at = ? WHERE id = ?").run(nowIso(), user.id);
+  await db.prepare("UPDATE users SET last_login_at = ? WHERE id = ?").run(nowIso(), user.id);
   await createSession(user.id);
   return { ok: true, user, isNew };
 }
 
 export async function createSession(userId: number) {
   const token = crypto.randomBytes(32).toString("base64url");
-  db.prepare("INSERT INTO sessions (token_hash, user_id, expires_at) VALUES (?,?,?)").run(sha(token), userId, addDays(SESSION_DAYS));
+  await db.prepare("INSERT INTO sessions (token_hash, user_id, expires_at) VALUES (?,?,?)").run(sha(token), userId, addDays(SESSION_DAYS));
   const jar = await cookies();
   jar.set(SESSION_COOKIE, token, {
     httpOnly: true,
@@ -119,7 +121,7 @@ export async function createSession(userId: number) {
 export async function destroySession() {
   const jar = await cookies();
   const token = jar.get(SESSION_COOKIE)?.value;
-  if (token) db.prepare("DELETE FROM sessions WHERE token_hash = ?").run(sha(token));
+  if (token) await db.prepare("DELETE FROM sessions WHERE token_hash = ?").run(sha(token));
   jar.delete(SESSION_COOKIE);
 }
 
@@ -128,10 +130,10 @@ export async function getUser(): Promise<User | null> {
   const jar = await cookies();
   const token = jar.get(SESSION_COOKIE)?.value;
   if (!token) return null;
-  const row = db.prepare(
-    `SELECT u.* FROM sessions s JOIN users u ON u.id = s.user_id
+  const row = await db.prepare(
+      `SELECT u.* FROM sessions s JOIN users u ON u.id = s.user_id
      WHERE s.token_hash = ? AND s.expires_at > ? AND u.deleted_at IS NULL AND u.blocked = 0`
-  ).get(sha(token), nowIso()) as User | undefined;
+    ).get(sha(token), nowIso()) as User | undefined;
   return row ?? null;
 }
 

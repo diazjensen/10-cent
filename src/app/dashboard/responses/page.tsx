@@ -25,21 +25,21 @@ export default async function Responses({ searchParams }: PageProps<"/dashboard/
   if (status !== "all") { where.push("ld.status = ?"); args.push(status); }
   else where.push("ld.status <> 'spam'");
   if (listing) { where.push("ld.listing_id = ?"); args.push(listing); }
-  const total = (db.prepare(`SELECT COUNT(*) n FROM leads ld WHERE ${where.join(" AND ")}`).get(...args) as { n: number }).n;
-  const leads = db.prepare(
-    `SELECT ld.*, l.title listing_title, p.name project_name, p.slug project_slug, u.name seeker_name
+  const total = (await db.prepare(`SELECT COUNT(*) n FROM leads ld WHERE ${where.join(" AND ")}`).get(...args) as { n: number }).n;
+  const leads = await db.prepare(
+      `SELECT ld.*, l.title listing_title, p.name project_name, p.slug project_slug, u.name seeker_name
      FROM leads ld LEFT JOIN listings l ON l.id = ld.listing_id LEFT JOIN projects p ON p.id = ld.project_id LEFT JOIN users u ON u.id = ld.seeker_id
      WHERE ${where.map((w) => w).join(" AND ")} ORDER BY ld.created_at DESC LIMIT ${PER} OFFSET ${(page - 1) * PER}`
-  ).all(...args) as Array<{ id: number; listing_id: number | null; project_id: number | null; name: string | null; phone: string | null; email: string | null; message: string | null; channel: string; status: string; created_at: string; listing_title: string | null; project_name: string | null; project_slug: string | null; seeker_name: string | null }>;
-  const counts = Object.fromEntries((db.prepare("SELECT status, COUNT(*) n FROM leads WHERE poster_id = ? GROUP BY status").all(subject.id) as { status: string; n: number }[]).map((r) => [r.status, r.n]));
-  const myListings = db.prepare("SELECT l.id, l.title, (SELECT COUNT(*) FROM leads WHERE listing_id = l.id) n FROM listings l WHERE l.user_id = ? AND EXISTS (SELECT 1 FROM leads WHERE listing_id = l.id) ORDER BY n DESC").all(subject.id) as { id: number; title: string; n: number }[];
+    ).all(...args) as Array<{ id: number; listing_id: number | null; project_id: number | null; name: string | null; phone: string | null; email: string | null; message: string | null; channel: string; status: string; created_at: string; listing_title: string | null; project_name: string | null; project_slug: string | null; seeker_name: string | null }>;
+  const counts = Object.fromEntries((await db.prepare("SELECT status, COUNT(*) n FROM leads WHERE poster_id = ? GROUP BY status").all(subject.id) as { status: string; n: number }[]).map((r) => [r.status, r.n]));
+  const myListings = await db.prepare("SELECT l.id, l.title, (SELECT COUNT(*) FROM leads WHERE listing_id = l.id) n FROM listings l WHERE l.user_id = ? AND EXISTS (SELECT 1 FROM leads WHERE listing_id = l.id) ORDER BY n DESC").all(subject.id) as { id: number; title: string; n: number }[];
 
-  const visits = db.prepare(
-    `SELECT v.id, v.scheduled_at, v.status, v.listing_id, v.project_id, COALESCE(l.title, p.name) what, u.name seeker_name, u.phone seeker_phone
+  const visits = await db.prepare(
+      `SELECT v.id, v.scheduled_at, v.status, v.listing_id, v.project_id, COALESCE(l.title, p.name) what, u.name seeker_name, u.phone seeker_phone
      FROM visits v LEFT JOIN listings l ON l.id = v.listing_id LEFT JOIN projects p ON p.id = v.project_id LEFT JOIN users u ON u.id = v.seeker_id
      WHERE (l.user_id = ? OR p.builder_id = ?) AND v.status IN ('requested','confirmed')
      ORDER BY v.scheduled_at LIMIT 20`
-  ).all(subject.id, subject.id) as Array<{ id: number; scheduled_at: string; status: string; listing_id: number | null; project_id: number | null; what: string; seeker_name: string | null; seeker_phone: string | null }>;
+    ).all(subject.id, subject.id) as Array<{ id: number; scheduled_at: string; status: string; listing_id: number | null; project_id: number | null; what: string; seeker_name: string | null; seeker_phone: string | null }>;
 
   const href = (o: Record<string, string | number | null>) => {
     const q = new URLSearchParams();

@@ -10,20 +10,20 @@ import { PrintButton } from "@/components/content/print-button";
 
 export async function generateMetadata({ params }: PageProps<"/projects/[slug]/brochure">): Promise<Metadata> {
   const { slug } = await params;
-  const p = getProjectBySlug(slug);
+  const p = await getProjectBySlug(slug);
   return { title: p ? `${p.name} brochure` : "Brochure", robots: { index: false } };
 }
 
 /** Printable brochure generated from project data, used when the builder hasn't uploaded a PDF. */
 export default async function Brochure({ params }: PageProps<"/projects/[slug]/brochure">) {
   const { slug } = await params;
-  const p = getProjectBySlug(slug);
+  const p = await getProjectBySlug(slug);
   if (!p) notFound();
   const u = await getUser();
   if (!p.approved) {
     if (!(u && (u.id === p.builder_id || can(u, "projects")))) notFound();
   }
-  const { units, towers, media } = projectParts(p.id);
+  const { units, towers, media } = await projectParts(p.id);
   const amenities = parseJsonArray<string>(p.amenities);
   const adv = parseJsonArray<{ name: string; distance: string }>(p.location_advantages);
   const builder = p.builder_company ?? p.builder_name ?? "";

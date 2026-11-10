@@ -33,13 +33,13 @@ export default async function MyListings({ searchParams }: PageProps<"/dashboard
   const tab = TABS.find((t) => t.key === sp.tab) ?? TABS[0];
   const highlight = Number(sp.highlight) || null;
   const counts = Object.fromEntries(
-    (db.prepare("SELECT status, COUNT(*) n FROM listings WHERE user_id = ? GROUP BY status").all(subject.id) as { status: string; n: number }[]).map((r) => [r.status, r.n])
+    (await db.prepare("SELECT status, COUNT(*) n FROM listings WHERE user_id = ? GROUP BY status").all(subject.id) as { status: string; n: number }[]).map((r) => [r.status, r.n])
   );
   const countFor = (t: (typeof TABS)[number]) => (t.statuses ? t.statuses.reduce((a, s) => a + (counts[s] ?? 0), 0) : Object.values(counts).reduce((a, b) => a + b, 0));
 
   const where = tab.statuses ? `AND l.status IN (${tab.statuses.map(() => "?").join(",")})` : "";
-  const rows = db.prepare(
-    `SELECT l.id, l.title, l.status, l.transaction_type, l.price, l.created_at, l.published_at, l.expires_at, l.reject_reason, l.verified, l.verification_requested_at, l.boost, l.premium,
+  const rows = await db.prepare(
+      `SELECT l.id, l.title, l.status, l.transaction_type, l.price, l.created_at, l.published_at, l.expires_at, l.reject_reason, l.verified, l.verification_requested_at, l.boost, l.premium,
        lo.name locality, c.name city,
        (SELECT url FROM listing_media m WHERE m.listing_id = l.id AND m.kind = 'photo' ORDER BY sort LIMIT 1) cover,
        (SELECT COALESCE(SUM(views),0) FROM listing_stats s WHERE s.listing_id = l.id) views,
@@ -50,8 +50,8 @@ export default async function MyListings({ searchParams }: PageProps<"/dashboard
      FROM listings l JOIN cities c ON c.id = l.city_id LEFT JOIN localities lo ON lo.id = l.locality_id
      WHERE l.user_id = ? ${where}
      ORDER BY CASE WHEN l.id = ? THEN 0 ELSE 1 END, l.created_at DESC`
-  ).all(subject.id, ...(tab.statuses ?? []), highlight ?? -1) as Row[];
-  const q = listingQuota(subject.id);
+    ).all(subject.id, ...(tab.statuses ?? []), highlight ?? -1) as Row[];
+  const q = await listingQuota(subject.id);
   const soon = addDays(7);
 
   return (

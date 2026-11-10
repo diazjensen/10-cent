@@ -12,7 +12,7 @@ const SORTS = [["featured", "Featured first"], ["newest", "Newest"], ["price_asc
 
 export async function generateMetadata({ searchParams }: PageProps<"/projects">): Promise<Metadata> {
   const sp = await searchParams;
-  const c = typeof sp.city === "string" ? getCity(sp.city) : undefined;
+  const c = typeof sp.city === "string" ? await getCity(sp.city) : undefined;
   const st = typeof sp.status === "string" ? PROJECT_STATUS[sp.status]?.label : undefined;
   const where = c ? ` in ${c.name}` : " in India";
   return {
@@ -28,9 +28,9 @@ export default async function ProjectsPage({ searchParams }: PageProps<"/project
   const sp = await searchParams;
   const f = { city: str(sp.city), status: str(sp.status), bhk: str(sp.bhk), budget: str(sp.budget), loc: str(sp.loc), q: str(sp.q).trim(), sort: str(sp.sort) || "featured" };
   const page = Math.max(1, Number(sp.page) || 1);
-  const cities = getCities();
-  const city = f.city ? getCity(f.city) : undefined;
-  const locs = city ? getLocalities(city.id) : [];
+  const cities = await getCities();
+  const city = f.city ? await getCity(f.city) : undefined;
+  const locs = city ? await getLocalities(city.id) : [];
 
   const where = ["p.approved = 1"];
   const args: (string | number)[] = [];
@@ -60,8 +60,8 @@ export default async function ProjectsPage({ searchParams }: PageProps<"/project
     possession: "p.status = 'ready' DESC, p.possession_date ASC",
   }[f.sort] ?? "p.featured DESC, p.created_at DESC";
   const w = where.join(" AND ");
-  const total = (db.prepare(`SELECT COUNT(*) n FROM projects p JOIN cities c ON c.id = p.city_id LEFT JOIN localities lo ON lo.id = p.locality_id LEFT JOIN profiles pr ON pr.user_id = p.builder_id WHERE ${w}`).get(...args) as { n: number }).n;
-  const rows = db.prepare(`${PROJECT_CARD_SQL} WHERE ${w} ORDER BY ${order}, p.id DESC LIMIT ${PAGE} OFFSET ${(page - 1) * PAGE}`).all(...args) as ProjectCardRow[];
+  const total = (await db.prepare(`SELECT COUNT(*) n FROM projects p JOIN cities c ON c.id = p.city_id LEFT JOIN localities lo ON lo.id = p.locality_id LEFT JOIN profiles pr ON pr.user_id = p.builder_id WHERE ${w}`).get(...args) as { n: number }).n;
+  const rows = await db.prepare(`${PROJECT_CARD_SQL} WHERE ${w} ORDER BY ${order}, p.id DESC LIMIT ${PAGE} OFFSET ${(page - 1) * PAGE}`).all(...args) as ProjectCardRow[];
   const pages = Math.max(1, Math.ceil(total / PAGE));
   const qs = (o: Record<string, string>) => {
     const u = new URLSearchParams(Object.entries({ ...f, ...o }).filter(([k, v]) => v && !(k === "sort" && v === "featured")));

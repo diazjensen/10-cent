@@ -23,7 +23,7 @@ type Visit = { id: number; scheduled_at: string; status: string; listing_id: num
 
 export default async function ContactedPage() {
   const u = await requireUser("/account/contacted");
-  const leads = db.prepare(`SELECT ld.id, ld.channel, ld.status, ld.created_at, ld.message, ld.listing_id, ld.project_id,
+  const leads = await db.prepare(`SELECT ld.id, ld.channel, ld.status, ld.created_at, ld.message, ld.listing_id, ld.project_id,
       l.title l_title, l.price l_price, l.transaction_type l_tx, l.status l_status, p.name p_name, p.slug p_slug,
       COALESCE(lo1.name, lo2.name) loc, COALESCE(c1.name, c2.name) city, COALESCE(pr.company_name, pu.name) poster
     FROM leads ld LEFT JOIN listings l ON l.id = ld.listing_id LEFT JOIN projects p ON p.id = ld.project_id
@@ -31,7 +31,7 @@ export default async function ContactedPage() {
     LEFT JOIN cities c1 ON c1.id = l.city_id LEFT JOIN cities c2 ON c2.id = p.city_id
     LEFT JOIN users pu ON pu.id = ld.poster_id LEFT JOIN profiles pr ON pr.user_id = ld.poster_id
     WHERE ld.seeker_id = ? ORDER BY ld.created_at DESC LIMIT 200`).all(u.id) as Lead[];
-  const visits = db.prepare(`SELECT v.id, v.scheduled_at, v.status, v.listing_id, l.title l_title, p.name p_name, p.slug p_slug
+  const visits = await db.prepare(`SELECT v.id, v.scheduled_at, v.status, v.listing_id, l.title l_title, p.name p_name, p.slug p_slug
     FROM visits v LEFT JOIN listings l ON l.id = v.listing_id LEFT JOIN projects p ON p.id = v.project_id
     WHERE v.seeker_id = ? ORDER BY v.scheduled_at DESC`).all(u.id) as Visit[];
   const now = new Date().toISOString();

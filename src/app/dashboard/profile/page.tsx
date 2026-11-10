@@ -11,9 +11,9 @@ export const metadata: Metadata = { title: "Profile", robots: { index: false } }
 
 export default async function ProfilePage() {
   const { subject, impersonating } = await dashboardContext("/dashboard/profile");
-  const p = getProfile(subject.id);
+  const p = await getProfile(subject.id);
   const biz = subject.role === "agent" || subject.role === "builder";
-  const live = (db.prepare("SELECT COUNT(*) n FROM listings WHERE user_id = ? AND status = 'live'").get(subject.id) as { n: number }).n;
+  const live = (await db.prepare("SELECT COUNT(*) n FROM listings WHERE user_id = ? AND status = 'live'").get(subject.id) as { n: number }).n;
   const s = (v: unknown) => (v == null ? "" : String(v));
   return (
     <div className="max-w-3xl">
@@ -34,7 +34,7 @@ export default async function ProfilePage() {
         <ProfileForm
           readOnly={impersonating}
           role={subject.role}
-          cities={getCities().map((c) => ({ id: c.id, name: c.name }))}
+          cities={(await getCities()).map((c) => ({ id: c.id, name: c.name }))}
           initial={{
             name: s(subject.name), email: s(subject.email), company_name: s(p?.company_name), rera_number: s(p?.rera_number),
             experience_years: s(p?.experience_years), established_year: s(p?.established_year), about: s(p?.about), website: s(p?.website),

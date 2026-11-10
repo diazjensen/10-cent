@@ -4,7 +4,7 @@ import { z } from "zod";
 import { db, nowIso } from "@/lib/db";
 import { notify } from "@/lib/notify";
 import { slugify, formatPaise } from "@/lib/format";
-import { staff, auditAs, done, fail, NOT_ALLOWED, str, int, bool, zodErrors, type ActionState } from "./guard";
+import { pgInt, staff, auditAs, done, fail, NOT_ALLOWED, str, int, bool, zodErrors, type ActionState } from "./guard";
 
 const planSchema = z.object({
   code: z.string().regex(/^[a-z0-9_]{3,40}$/, "3–40 chars: a–z, 0–9, _"),
@@ -21,7 +21,7 @@ const planSchema = z.object({
 export async function savePlan(_p: ActionState, fd: FormData): Promise<ActionState> {
   const me = await staff("billing");
   if (!me) return NOT_ALLOWED;
-  const id = Number(fd.get("id")) || null;
+  const id = pgInt(fd.get("id")) || null;
   const priceRaw = str(fd, "price").replace(/[,₹\s]/g, "");
   const parsed = planSchema.safeParse({
     code: str(fd, "code") || slugify(str(fd, "name")).replace(/-/g, "_"),
@@ -36,20 +36,20 @@ export async function savePlan(_p: ActionState, fd: FormData): Promise<ActionSta
   });
   if (!parsed.success) return fail("Fix the highlighted fields.", zodErrors(parsed.error.issues));
   const v = parsed.data;
-  const clash = db.prepare("SELECT id FROM plans WHERE code = ? AND id IS NOT ?").get(v.code, id);
+  const clash = await db.prepare("SELECT id FROM plans WHERE code = ? AND id IS DISTINCT FROM ?::int").get(v.code, id);
   if (clash) return fail("Another plan uses this code.", { code: "Already used" });
   const paise = Math.round(v.price * 100);
   const active = bool(fd, "active");
   if (id) {
-    const before = db.prepare("SELECT * FROM plans WHERE id = ?").get(id);
+    const before = await db.prepare("SELECT * FROM plans WHERE id = ?").get(id);
     if (!before) return fail("Plan not found.");
-    db.prepare("UPDATE plans SET code=?, name=?, audience=?, price_paise=?, duration_days=?, listing_limit=?, boost=?, features=?, active=?, sort=? WHERE id = ?")
-      .run(v.code, v.name, v.audience, paise, v.duration_days, v.listing_limit, v.boost, JSON.stringify(v.features), active, v.sort, id);
+    await db.prepare("UPDATE plans SET code=?, name=?, audience=?, price_paise=?, duration_days=?, listing_limit=?, boost=?, features=?, active=?, sort=? WHERE id = ?")
+            .run(v.code, v.name, v.audience, paise, v.duration_days, v.listing_limit, v.boost, JSON.stringify(v.features), active, v.sort, id);
     await auditAs(me, "plan.update", "plan", id, { before, after: { ...v, price_paise: paise, active } });
     return done(`Plan “${v.name}” saved.`);
   }
-  const newId = Number(db.prepare("INSERT INTO plans (code, name, audience, price_paise, duration_days, listing_limit, boost, features, active, sort) VALUES (?,?,?,?,?,?,?,?,?,?)")
-    .run(v.code, v.name, v.audience, paise, v.duration_days, v.listing_limit, v.boost, JSON.stringify(v.features), active, v.sort).lastInsertRowid);
+  const newId = Number((await db.prepare("INSERT INTO plans (code, name, audience, price_paise, duration_days, listing_limit, boost, features, active, sort) VALUES (?,?,?,?,?,?,?,?,?,?)")
+          .run(v.code, v.name, v.audience, paise, v.duration_days, v.listing_limit, v.boost, JSON.stringify(v.features), active, v.sort)).lastInsertRowid);
   await auditAs(me, "plan.create", "plan", newId, { ...v, price_paise: paise });
   return done(`Plan “${v.name}” created.`);
 }
@@ -57,14 +57,14 @@ export async function savePlan(_p: ActionState, fd: FormData): Promise<ActionSta
 export async function deletePlan(_p: ActionState, fd: FormData): Promise<ActionState> {
   const me = await staff("billing");
   if (!me) return NOT_ALLOWED;
-  const id = Number(fd.get("id"));
-  const used = (db.prepare("SELECT COUNT(*) n FROM orders WHERE plan_id = ?").get(id) as { n: number }).n;
+  const id = pgInt(fd.get("id"));
+  const used = (await db.prepare("SELECT COUNT(*) n FROM orders WHERE plan_id = ?").get(id) as { n: number }).n;
   if (used) {
-    db.prepare("UPDATE plans SET active = 0 WHERE id = ?").run(id);
+    await db.prepare("UPDATE plans SET active = 0 WHERE id = ?").run(id);
     await auditAs(me, "plan.deactivate", "plan", id, { reason: "has orders" });
     return done(`Plan has ${used} orders, so it was deactivated instead of deleted.`);
   }
-  db.prepare("DELETE FROM plans WHERE id = ?").run(id);
+  await db.prepare("DELETE FROM plans WHERE id = ?").run(id);
   await auditAs(me, "plan.delete", "plan", id);
   return done("Plan deleted.");
 }
@@ -79,7 +79,7 @@ const couponSchema = z.object({
 export async function saveCoupon(_p: ActionState, fd: FormData): Promise<ActionState> {
   const me = await staff("billing");
   if (!me) return NOT_ALLOWED;
-  const id = Number(fd.get("id")) || null;
+  const id = pgInt(fd.get("id")) || null;
   const parsed = couponSchema.safeParse({
     code: str(fd, "code").toUpperCase(),
     percent_off: int(fd, "percent_off") ?? undefined,
@@ -89,19 +89,19 @@ export async function saveCoupon(_p: ActionState, fd: FormData): Promise<ActionS
   if (!parsed.success) return fail("Fix the highlighted fields.", zodErrors(parsed.error.issues));
   const v = parsed.data;
   if (!id && v.expires_at && v.expires_at < new Date().toISOString().slice(0, 10)) return fail("Expiry is in the past.", { expires_at: "In the past" });
-  const clash = db.prepare("SELECT id FROM coupons WHERE code = ? AND id IS NOT ?").get(v.code, id);
+  const clash = await db.prepare("SELECT id FROM coupons WHERE code = ? AND id IS DISTINCT FROM ?::int").get(v.code, id);
   if (clash) return fail("A coupon with this code exists.", { code: "Already exists" });
   const exp = v.expires_at ? new Date(v.expires_at + "T23:59:59+05:30").toISOString() : null;
   const active = bool(fd, "active");
   if (id) {
-    const before = db.prepare("SELECT * FROM coupons WHERE id = ?").get(id) as { used: number } | undefined;
+    const before = await db.prepare("SELECT * FROM coupons WHERE id = ?").get(id) as { used: number } | undefined;
     if (!before) return fail("Coupon not found.");
     if (v.max_uses != null && v.max_uses < before.used) return fail(`Already used ${before.used} times.`, { max_uses: `At least ${before.used}` });
-    db.prepare("UPDATE coupons SET code=?, percent_off=?, max_uses=?, expires_at=?, active=? WHERE id = ?").run(v.code, v.percent_off, v.max_uses, exp, active, id);
+    await db.prepare("UPDATE coupons SET code=?, percent_off=?, max_uses=?, expires_at=?, active=? WHERE id = ?").run(v.code, v.percent_off, v.max_uses, exp, active, id);
     await auditAs(me, "coupon.update", "coupon", id, { before, after: { ...v, active } });
     return done(`Coupon ${v.code} saved.`);
   }
-  const newId = Number(db.prepare("INSERT INTO coupons (code, percent_off, max_uses, expires_at, active) VALUES (?,?,?,?,?)").run(v.code, v.percent_off, v.max_uses, exp, active).lastInsertRowid);
+  const newId = Number((await db.prepare("INSERT INTO coupons (code, percent_off, max_uses, expires_at, active) VALUES (?,?,?,?,?)").run(v.code, v.percent_off, v.max_uses, exp, active)).lastInsertRowid);
   await auditAs(me, "coupon.create", "coupon", newId, v);
   return done(`Coupon ${v.code} created: ${v.percent_off}% off.`);
 }
@@ -109,16 +109,16 @@ export async function saveCoupon(_p: ActionState, fd: FormData): Promise<ActionS
 export async function deleteCoupon(_p: ActionState, fd: FormData): Promise<ActionState> {
   const me = await staff("billing");
   if (!me) return NOT_ALLOWED;
-  const id = Number(fd.get("id"));
-  const c = db.prepare("SELECT code, used FROM coupons WHERE id = ?").get(id) as { code: string; used: number } | undefined;
+  const id = pgInt(fd.get("id"));
+  const c = await db.prepare("SELECT code, used FROM coupons WHERE id = ?").get(id) as { code: string; used: number } | undefined;
   if (!c) return fail("Coupon not found.");
-  const used = (db.prepare("SELECT COUNT(*) n FROM orders WHERE coupon_id = ?").get(id) as { n: number }).n;
+  const used = (await db.prepare("SELECT COUNT(*) n FROM orders WHERE coupon_id = ?").get(id) as { n: number }).n;
   if (used || c.used) {
-    db.prepare("UPDATE coupons SET active = 0 WHERE id = ?").run(id);
+    await db.prepare("UPDATE coupons SET active = 0 WHERE id = ?").run(id);
     await auditAs(me, "coupon.deactivate", "coupon", id);
     return done(`${c.code} has been used, so it was deactivated instead of deleted.`);
   }
-  db.prepare("DELETE FROM coupons WHERE id = ?").run(id);
+  await db.prepare("DELETE FROM coupons WHERE id = ?").run(id);
   await auditAs(me, "coupon.delete", "coupon", id, { code: c.code });
   return done(`${c.code} deleted.`);
 }
@@ -126,20 +126,24 @@ export async function deleteCoupon(_p: ActionState, fd: FormData): Promise<Actio
 export async function refundOrder(_p: ActionState, fd: FormData): Promise<ActionState> {
   const me = await staff("billing");
   if (!me) return NOT_ALLOWED;
-  const id = Number(fd.get("id"));
+  const id = pgInt(fd.get("id"));
   const reason = str(fd, "reason");
   if (reason.length < 4) return fail("Write a short refund reason.", { reason: "Required" });
-  const o = db.prepare("SELECT o.*, p.name plan FROM orders o JOIN plans p ON p.id = o.plan_id WHERE o.id = ?").get(id) as { id: number; user_id: number; status: string; total_paise: number; gateway_ref: string | null; plan: string } | undefined;
+  const o = await db.prepare("SELECT o.*, p.name plan FROM orders o JOIN plans p ON p.id = o.plan_id WHERE o.id = ?").get(id) as { id: number; user_id: number; status: string; total_paise: number; gateway_ref: string | null; plan: string } | undefined;
   if (!o) return fail("Order not found.");
   if (o.status !== "paid") return fail(`Only paid orders can be refunded (this one is ${o.status}).`);
   let cancelled = 0;
-  db.transaction(() => {
-    db.prepare("UPDATE orders SET status = 'refunded', refunded_at = ? WHERE id = ?").run(nowIso(), id);
-    cancelled = db.prepare("UPDATE subscriptions SET status = 'cancelled', ends_at = ? WHERE order_id = ? AND status = 'active'").run(nowIso(), id).changes;
-    const stillActive = db.prepare("SELECT MAX(p.boost) b FROM subscriptions s JOIN plans p ON p.id = s.plan_id WHERE s.user_id = ? AND s.status = 'active' AND s.ends_at > ?").get(o.user_id, nowIso()) as { b: number | null };
-    db.prepare("UPDATE listings SET boost = ? WHERE user_id = ? AND boost > ?").run(stillActive.b ?? 0, o.user_id, stillActive.b ?? 0);
-  })();
+  let raced = false;
+  await db.transaction(async () => {
+        // Conditional update so a double click / two admins cannot refund (and notify) twice.
+        const won = await db.prepare("UPDATE orders SET status = 'refunded', refunded_at = ? WHERE id = ? AND status = 'paid'").run(nowIso(), id);
+        if (!won.changes) { raced = true; return; }
+        cancelled = (await db.prepare("UPDATE subscriptions SET status = 'cancelled', ends_at = ? WHERE order_id = ? AND status = 'active'").run(nowIso(), id)).changes;
+        const stillActive = await db.prepare("SELECT MAX(p.boost) b FROM subscriptions s JOIN plans p ON p.id = s.plan_id WHERE s.user_id = ? AND s.status = 'active' AND s.ends_at > ?").get(o.user_id, nowIso()) as { b: number | null };
+        await db.prepare("UPDATE listings SET boost = ? WHERE user_id = ? AND boost > ?").run(stillActive.b ?? 0, o.user_id, stillActive.b ?? 0);
+      })();
+  if (raced) return fail("This order was already refunded.");
   await auditAs(me, "order.refund", "order", id, { reason, amount_paise: o.total_paise, gateway_ref: o.gateway_ref, subscriptions_cancelled: cancelled });
-  notify(o.user_id, { kind: "billing", title: "Refund processed", body: `${formatPaise(o.total_paise)} for ${o.plan} (order #${id}) will reach your original payment method in 5–7 working days. The plan has been cancelled.`, link: "/dashboard/billing" }, ["sms", "email"]);
+  await notify(o.user_id, { kind: "billing", title: "Refund processed", body: `${formatPaise(o.total_paise)} for ${o.plan} (order #${id}) will reach your original payment method in 5–7 working days. The plan has been cancelled.`, link: "/dashboard/billing" }, ["sms", "email"]);
   return done(`Order #${id} refunded (${formatPaise(o.total_paise)}); ${cancelled} subscription${cancelled === 1 ? "" : "s"} cancelled.`);
 }

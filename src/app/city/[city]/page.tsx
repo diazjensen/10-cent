@@ -14,9 +14,9 @@ import { CompareTray } from "@/components/property/compare-ui";
 
 export async function generateMetadata({ params }: PageProps<"/city/[city]">): Promise<Metadata> {
   const { city: slug } = await params;
-  const city = getCity(slug);
+  const city = await getCity(slug);
   if (!city) return { title: "City not found" };
-  const n = (db.prepare("SELECT COUNT(*) n FROM listings WHERE status = 'live' AND city_id = ?").get(city.id) as { n: number }).n;
+  const n = (await db.prepare("SELECT COUNT(*) n FROM listings WHERE status = 'live' AND city_id = ?").get(city.id) as { n: number }).n;
   return {
     title: `Property in ${city.name}: flats, houses and plots for sale and rent`,
     description: `${formatINR(n)} verified properties in ${city.name}, ${city.state}. Flats, independent houses, villas, plots, PGs and commercial space for sale and rent, direct from owners, agents and builders.`,
@@ -26,16 +26,16 @@ export async function generateMetadata({ params }: PageProps<"/city/[city]">): P
 
 export default async function CityPage({ params }: PageProps<"/city/[city]">) {
   const { city: slug } = await params;
-  const city = getCity(slug);
+  const city = await getCity(slug);
   if (!city) notFound();
   const user = await getUser();
-  const saved = shortlistIds(user?.id);
+  const saved = await shortlistIds(user?.id);
 
-  const byType = db.prepare(`SELECT property_type, transaction_type, COUNT(*) n FROM listings WHERE status = 'live' AND city_id = ? GROUP BY 1, 2`).all(city.id) as Array<{ property_type: string; transaction_type: string; n: number }>;
+  const byType = await db.prepare(`SELECT property_type, transaction_type, COUNT(*) n FROM listings WHERE status = 'live' AND city_id = ? GROUP BY 1, 2`).all(city.id) as Array<{ property_type: string; transaction_type: string; n: number }>;
   const count = (type: string | null, tx: string | null) => byType.filter((r) => (!type || r.property_type === type) && (!tx || r.transaction_type === tx)).reduce((s, r) => s + r.n, 0);
   const total = count(null, null);
 
-  const locs = db.prepare(`
+  const locs = await db.prepare(`
     SELECT lo.id, lo.name, lo.slug, lo.rating, lo.trending,
       (SELECT COUNT(*) FROM listings l WHERE l.locality_id = lo.id AND l.status = 'live') n,
       (SELECT COUNT(*) FROM listings l WHERE l.locality_id = lo.id AND l.status = 'live' AND l.transaction_type = 'sell') sale,
@@ -45,9 +45,9 @@ export default async function CityPage({ params }: PageProps<"/city/[city]">) {
       (SELECT avg_rent_2bhk FROM price_trends t WHERE t.locality_id = lo.id ORDER BY month DESC LIMIT 1) rent2
     FROM localities lo WHERE lo.city_id = ? ORDER BY n DESC, lo.trending DESC, lo.name LIMIT 12`).all(city.id) as Array<{ id: number; name: string; slug: string; rating: number | null; trending: number; n: number; sale: number; rent: number; psf: number | null; psf_ly: number | null; rent2: number | null }>;
 
-  const latest = db.prepare(`SELECT ${CARD_SELECT} ${CARD_FROM} WHERE l.status = 'live' AND l.city_id = ? ORDER BY l.published_at DESC LIMIT 8`).all(city.id) as Card[];
+  const latest = await db.prepare(`SELECT ${CARD_SELECT} ${CARD_FROM} WHERE l.status = 'live' AND l.city_id = ? ORDER BY l.published_at DESC LIMIT 8`).all(city.id) as Card[];
   const avgPsf = locs.filter((l) => l.psf).reduce((s, l, _, a) => s + (l.psf ?? 0) / a.length, 0);
-  const projects = (db.prepare("SELECT COUNT(*) n FROM projects WHERE city_id = ? AND approved = 1").get(city.id) as { n: number }).n;
+  const projects = (await db.prepare("SELECT COUNT(*) n FROM projects WHERE city_id = ? AND approved = 1").get(city.id) as { n: number }).n;
 
   const s = (q: string) => `/search?city=${city.slug}${q ? `&${q}` : ""}`;
   const quick = [
