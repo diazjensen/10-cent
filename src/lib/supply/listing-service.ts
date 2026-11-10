@@ -1,8 +1,6 @@
 import "server-only";
 import crypto from "node:crypto";
-import fs from "node:fs";
-import path from "node:path";
-import { db, nowIso, UPLOAD_DIR } from "@/lib/db";
+import { db, nowIso } from "@/lib/db";
 import { normalizePhone, type User } from "@/lib/auth";
 import { listingHeadline } from "@/lib/format";
 import { activePlan, listingQuota } from "./account";
@@ -33,13 +31,12 @@ export async function localityAverages(localityId: number) {
     | undefined;
 }
 
-/** Re-hash an uploaded file from disk so clients can't spoof the image fingerprint. */
-function fileSha(url: string): string | null {
+/** Fingerprint of an uploaded file, read from the media_files table (null if the file does not exist). */
+async function fileSha(url: string): Promise<string | null> {
   const name = url.replace(/^\/api\/media\//, "");
   if (!/^[a-zA-Z0-9_-]+\.[a-z0-9]+$/.test(name)) return null;
-  const p = path.join(UPLOAD_DIR, name);
-  if (!fs.existsSync(p)) return null;
-  return crypto.createHash("sha256").update(fs.readFileSync(p)).digest("hex");
+  const row = (await db.prepare("SELECT sha256 FROM media_files WHERE name = ?").get(name)) as { sha256: string } | undefined;
+  return row?.sha256 ?? null;
 }
 
 /** Automated checks run on every submission (PRD P3). Pure read; caller stores the result. */
@@ -145,11 +142,16 @@ export async function saveListing(user: User, d: ListingInput, editId: number | 
   const keptArt = new Set(
     editId ? (await db.prepare("SELECT url FROM listing_media WHERE listing_id = ? AND url LIKE '/api/art/%'").all(editId) as { url: string }[]).map((r) => r.url) : []
   );
-  const photos = d.photos.map((p) => ({ url: p.url, sha256: p.url.startsWith("/api/art/") ? null : fileSha(p.url), art: p.url.startsWith("/api/art/") }));
+  const photos = await Promise.all(d.photos.map(async (p) => ({ url: p.url, sha256: p.url.startsWith("/api/art/") ? null : await fileSha(p.url), art: p.url.startsWith("/api/art/") })));
   if (photos.some((p) => (p.art ? !keptArt.has(p.url) : !p.sha256))) return { ok: false, errors: { photos: "One of the photos is missing. Remove it and upload again." } };
-  const one = (m: { url: string } | null) => (m ? { url: m.url, sha256: m.url.startsWith("/api/art/") ? null : fileSha(m.url), ok: m.url.startsWith("/api/art/") ? keptArt.has(m.url) : !!fileSha(m.url) } : null);
-  const video = one(d.video);
-  const floorplan = one(d.floorplan);
+  const one = async (m: { url: string } | null) => {
+    if (!m) return null;
+    if (m.url.startsWith("/api/art/")) return { url: m.url, sha256: null, ok: keptArt.has(m.url) };
+    const sha = await fileSha(m.url);
+    return { url: m.url, sha256: sha, ok: !!sha };
+  };
+  const video = await one(d.video);
+  const floorplan = await one(d.floorplan);
   if ((video && !video.ok) || (floorplan && !floorplan.ok)) return { ok: false, errors: { photos: "The video or floor plan file is missing. Upload it again." } };
 
   const cleaned = stripContactInfo(d.description);

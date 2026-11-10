@@ -22,6 +22,8 @@ Production: `npm run build && npm start` (set `INSECURE_COOKIES=1` if you test `
 
 To test against a local Postgres instead of Supabase, point `DATABASE_URL` at it (e.g. `postgresql://postgres@localhost:5432/tencent`) and run the same commands.
 
+**Uploads:** photos, floor plans, videos and PDFs are stored in the `media_files` table (not on disk), so they work on serverless hosts like Vercel. Photos are shrunk in the browser and re-encoded with `sharp` (max 2000 px); videos and PDFs are limited to 4 MB by the platform's request-size cap. For large videos, move uploads to Supabase Storage.
+
 **Data notes:** timestamps are stored as ISO-8601 UTC text and flags as 0/1 integers (kept from the first version so every query behaves the same);
 money is BIGINT rupees (or `*_paise`). `src/lib/pg.ts` is the data layer (`await db.prepare(sql).get/all/run`, `await db.transaction(...)`).
 

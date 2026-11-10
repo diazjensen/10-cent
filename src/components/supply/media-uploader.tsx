@@ -7,7 +7,31 @@ import type { MediaRef } from "@/lib/supply/listing-schema";
 
 type Kind = "image" | "video" | "pdf" | "image_or_pdf";
 
-export async function uploadFile(file: File, kind: Kind): Promise<{ ok: true; ref: MediaRef } | { ok: false; error: string }> {
+/**
+ * Phone photos are often 4-10 MB, but hosting platforms cap request bodies at about 4.5 MB. Shrink big photos in the
+ * browser first (longest side 2000 px, JPEG). Falls back to the original file if the browser cannot decode it.
+ */
+async function shrinkImage(file: File): Promise<File> {
+  if (!file.type.startsWith("image/") || file.type === "image/gif" || file.size < 1.5 * 1024 * 1024) return file;
+  try {
+    const bmp = await createImageBitmap(file, { imageOrientation: "from-image" });
+    const scale = Math.min(1, 2000 / Math.max(bmp.width, bmp.height));
+    const canvas = document.createElement("canvas");
+    canvas.width = Math.round(bmp.width * scale);
+    canvas.height = Math.round(bmp.height * scale);
+    canvas.getContext("2d")!.drawImage(bmp, 0, 0, canvas.width, canvas.height);
+    bmp.close();
+    const blob: Blob | null = await new Promise((r) => canvas.toBlob(r, "image/jpeg", 0.85));
+    if (!blob || blob.size >= file.size) return file;
+    return new File([blob], file.name.replace(/\.\w+$/, "") + ".jpg", { type: "image/jpeg" });
+  } catch {
+    return file;
+  }
+}
+
+export async function uploadFile(original: File, kind: Kind): Promise<{ ok: true; ref: MediaRef } | { ok: false; error: string }> {
+  const file = kind === "image" || kind === "image_or_pdf" ? await shrinkImage(original) : original;
+  if (file.size > 4.4 * 1024 * 1024) return { ok: false, error: `${original.name}: file is too large (max 4 MB for ${kind === "video" ? "videos" : "this file type"}).` };
   const fd = new FormData();
   fd.append("file", file);
   fd.append("kind", kind);

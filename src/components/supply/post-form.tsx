@@ -468,7 +468,7 @@ export function PostForm({
             <PhotoUploader photos={d.photos} onChange={(p) => set("photos", p)} max={MAX_PHOTOS} />
             {err("photos") && <p className="text-xs text-danger" role="alert">{err("photos")}</p>}
             <div className="grid md:grid-cols-2 gap-3">
-              <FileUploader id="video" kind="video" label="Walkthrough video" hint="MP4 or WebM, up to 60 MB (optional)" value={d.video} onChange={(v) => set("video", v)} />
+              <FileUploader id="video" kind="video" label="Walkthrough video" hint="MP4 or WebM, up to 4 MB (optional). For longer videos, add a YouTube link in the description." value={d.video} onChange={(v) => set("video", v)} />
               <FileUploader id="floorplan" kind="image_or_pdf" label="Floor plan" hint="Image or PDF (optional)" value={d.floorplan} onChange={(v) => set("floorplan", v)} />
             </div>
           </StepWrap>

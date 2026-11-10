@@ -494,6 +494,15 @@ CREATE TABLE IF NOT EXISTS reports (
   resolved_at TEXT
 );
 
+CREATE TABLE IF NOT EXISTS media_files (
+  name TEXT PRIMARY KEY,
+  mime TEXT NOT NULL,
+  size INTEGER NOT NULL,
+  sha256 TEXT NOT NULL,
+  data BYTEA NOT NULL,
+  created_at TEXT NOT NULL DEFAULT (to_char(now() AT TIME ZONE 'utc', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"'))
+);
+
 CREATE INDEX IF NOT EXISTS idx_otps_target ON otps(target, created_at);
 CREATE INDEX IF NOT EXISTS idx_listings_search ON listings(status, city_id, transaction_type, price);
 CREATE INDEX IF NOT EXISTS idx_listings_user ON listings(user_id, status);
@@ -543,3 +552,4 @@ ALTER TABLE public.shortlists ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.seen_listings ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.subscriptions ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.reports ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.media_files ENABLE ROW LEVEL SECURITY;
