@@ -132,6 +132,7 @@ export default async function Home() {
       </Container>
 
       {/* New projects */}
+      {projects.length > 0 && (
       <section className="mt-20 bg-paper-2/70 border-y border-line py-16">
         <Container>
           <SectionHeading eyebrow="New projects" title="RERA-registered launches" action={<Link href={`/projects${city ? `?city=${city.slug}` : ""}`} className="text-sm font-medium inline-flex items-center gap-1 hover:gap-2 transition-all">All projects <ArrowRight size={15} /></Link>} />
@@ -174,6 +175,7 @@ export default async function Home() {
           </div>
         </Container>
       </section>
+      )}
 
       {/* Fresh verified */}
       {fresh.length > 0 && (

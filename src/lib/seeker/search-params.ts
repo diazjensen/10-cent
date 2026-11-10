@@ -67,7 +67,7 @@ const TYPE_PLURAL: Record<string, string> = {
 };
 
 /**
- * Human heading for a search, e.g. "2 BHK flats for rent in HSR Layout, Bengaluru".
+ * Human heading for a search, e.g. "2 BHK flats for rent in Edappally, Kochi".
  * `names` resolves locality ids / city slug to display names.
  */
 export function describeSearch(p: SearchParamsObj, names: { city?: string | null; localities?: string[] }) {

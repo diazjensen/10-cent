@@ -145,6 +145,25 @@ function plot(r: Rng) {
   return s;
 }
 
+function warehouse(r: Rng) {
+  let s = sun(r);
+  const ground = 520, wall = pick(r, ["#8FA392", "#B9A48A", "#7D8A84", "#D9C3A5"]), roof = pick(r, ACCENT);
+  const x = between(r, 70, 110), w = 800 - 2 * x, top = 250;
+  s += `<rect x="${x}" y="${top}" width="${w}" height="${ground - top}" fill="${wall}"/>`;
+  s += `<path d="M${x - 14} ${top} L${x + w * 0.5} ${top - 70} L${x + w + 14} ${top}Z" fill="${roof}"/>`;
+  for (let i = 0; i < 12; i++) s += `<rect x="${x}" y="${top + 8 + i * 4}" width="${w}" height="1.5" fill="#00000012"/>`;
+  const doors = 3, dw = 120, gap = (w - doors * dw) / (doors + 1);
+  for (let i = 0; i < doors; i++) {
+    const dx = x + gap + i * (dw + gap);
+    s += `<rect x="${dx}" y="${ground - 150}" width="${dw}" height="150" fill="#3B4A54"/>`;
+    for (let k = 0; k < 7; k++) s += `<rect x="${dx}" y="${ground - 150 + k * 21}" width="${dw}" height="2" fill="#ffffff22"/>`;
+  }
+  s += `<rect x="${x}" y="${top + 24}" width="${w}" height="26" fill="#2F3A3F"/><text x="400" y="${top + 43}" font-family="Helvetica,Arial" font-size="16" fill="#E7E2D8" text-anchor="middle" letter-spacing="8">GODOWN</text>`;
+  s += `<rect x="0" y="${ground}" width="800" height="80" fill="#CFC6B4"/><rect x="0" y="${ground}" width="800" height="6" fill="#B5AB97"/>`;
+  s += trees(r, 3, ground + 4);
+  return s;
+}
+
 function floorplan(r: Rng) {
   let s = `<rect width="800" height="600" fill="#FBFAF7"/>`;
   const g = "#2B2F33";
@@ -157,8 +176,8 @@ function floorplan(r: Rng) {
   return s;
 }
 
-export type ArtKind = "tower" | "house" | "villa" | "living" | "bed" | "kitchen" | "office" | "shop" | "plot" | "floorplan";
-export const ART_KINDS: ArtKind[] = ["tower", "house", "villa", "living", "bed", "kitchen", "office", "shop", "plot", "floorplan"];
+export type ArtKind = "warehouse" | "tower" | "house" | "villa" | "living" | "bed" | "kitchen" | "office" | "shop" | "plot" | "floorplan";
+export const ART_KINDS: ArtKind[] = ["warehouse", "tower", "house", "villa", "living", "bed", "kitchen", "office", "shop", "plot", "floorplan"];
 
 export function renderArt(kind: ArtKind, seed: number): string {
   const r = mulberry(seed * 9973 + kind.length * 131);
@@ -173,6 +192,7 @@ export function renderArt(kind: ArtKind, seed: number): string {
     case "office": return wrap(office(r), sky);
     case "shop": return wrap(shop(r), sky);
     case "plot": return wrap(plot(r), sky);
+    case "warehouse": return wrap(warehouse(r), sky);
     case "floorplan": return wrap(floorplan(r), sky);
   }
 }
