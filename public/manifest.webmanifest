@@ -1,0 +1,11 @@
+{
+  "name": "10cent: Homes to buy and rent",
+  "short_name": "10cent",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#f6f4ef",
+  "theme_color": "#16181b",
+  "icons": [
+    { "src": "/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any maskable" }
+  ]
+}

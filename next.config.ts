@@ -1,9 +1,11 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
-  /* config options here */
-  cacheComponents: true,
-  partialPrefetching: true,
+  serverExternalPackages: ["better-sqlite3"],
+  poweredByHeader: false,
+  async rewrites() {
+    return [{ source: "/property-in-:city", destination: "/city/:city" }];
+  },
   turbopack: {
     rules: {
       "*.css": {
@@ -11,6 +13,9 @@ const nextConfig: NextConfig = {
         as: "*.css",
       },
     },
+  },
+  experimental: {
+    serverActions: { bodySizeLimit: "25mb" },
   },
 };
 
